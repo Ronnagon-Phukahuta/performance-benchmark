@@ -8,3 +8,4 @@ psycopg2-binary==2.9.10
 sqlalchemy==2.0.40
 matplotlib==3.10.1
 pymssql==2.3.13
+pymongo

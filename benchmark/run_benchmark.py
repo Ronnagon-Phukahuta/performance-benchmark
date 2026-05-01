@@ -14,6 +14,8 @@ LOADER_ORDER = [
     "loaders.parquet.lazy_polars",
     "loaders.parquet.compressed",
     "loaders.postgres.bulk_copy",
+    "loaders.mongodb.bulk_insert",
+    "loaders.mongodb.bulk_insert_ordered",
 ]
 
 DNF_LOADERS = [
@@ -27,6 +29,7 @@ DNF_LOADERS = [
     "loaders.sqlserver.row_by_row",
     "loaders.sqlserver.bulk_insert",
     "loaders.sqlserver.bulk_columnstore",
+    "loaders.mongodb.row_by_row",
 ]
 
 FULL_ROW_COUNT = 28_151_758
