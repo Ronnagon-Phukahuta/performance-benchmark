@@ -48,6 +48,12 @@
 
 ## Big O Complexity
 
+### Complexity Growth Rates
+![Big O Classic](results/complexity_classic.png)
+
+### At 28M Rows — Real Impact
+![Big O Benchmark Scale](results/complexity_chart.png)
+
 | Method | Technology | Write | Read | Query | Write note |
 |---|---|---|---|---|---|
 | row_by_row (pandas) | DuckDB | O(n) | O(n) | O(n) | 1 Python call per row |
