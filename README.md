@@ -84,7 +84,7 @@
 
 ## Results
 
-### Write — 28,151,758 rows
+### Write — 28,151,758 rows (full benchmark)
 
 | Method | Duration | Peak RAM | Disk |
 |---|---|---|---|
@@ -98,14 +98,24 @@
 | parquet compressed snappy | 12.09s | 7,656 MB | 375 MB |
 | parquet compressed gzip | 30.34s | 7,634 MB | 295 MB |
 | postgres bulk_copy | 263.43s | 16,352 MB | — |
-| duckdb row_by_row (pandas) | ~6.0h ❌ | — | — |
-| duckdb row_by_row (polars) | ~5.9h ❌ | — | — |
-| duckdb batch_insert (pandas) | ~6.1h ❌ | — | — |
-| duckdb batch_insert (polars) | ~6.0h ❌ | — | — |
-| postgres row_by_row | ~2.8h ❌ | — | — |
-| postgres batch_insert | ~2.9h ❌ | — | — |
 
 > \* extrapolated from 100K subset — partitioned write is O(p) where p = number of tickers
+
+### Write — 100K Subset (extrapolated to 28M)
+
+| Method | Technology | Write (100K) | Extrapolated 28M | RAM (100K) |
+|---|---|---|---|---|
+| row_by_row (pandas) | DuckDB | 76.67s | ~6.0h ❌ | 249 MB |
+| row_by_row (polars) | DuckDB | 76.06s | ~5.9h ❌ | 195 MB |
+| batch_insert (pandas) | DuckDB | 77.87s | ~6.1h ❌ | 192 MB |
+| batch_insert (polars) | DuckDB | 76.66s | ~6.0h ❌ | 172 MB |
+| row_by_row | Postgres | 36.43s | ~2.8h ❌ | 187 MB |
+| batch_insert | Postgres | 36.89s | ~2.9h ❌ | 202 MB |
+| bulk_insert | SQL Server | 72.85s | ~5.7h ❌ | 185 MB |
+| bulk_columnstore | SQL Server | 68.20s | ~5.3h ❌ | 187 MB |
+| row_by_row | SQL Server | 72.25s | ~5.7h ❌ | 245 MB |
+
+> All variants benchmarked on 100K rows and extrapolated linearly. RAM measured on subset only.
 
 ### Read — 28,151,758 rows
 

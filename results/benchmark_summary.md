@@ -79,6 +79,20 @@ These methods were too slow to run against the full 28M-row dataset. Times are e
 
 ---
 
+## SQL Server Results (100K subset — extrapolated to 28M)
+
+| Method | Write (100K) | Extrapolated 28M | Query (100K) | Note |
+|---|---|---|---|---|
+| bulk_insert | 72.85s | ~5.7h ❌ | — | TDS protocol bottleneck |
+| bulk_columnstore | 68.20s | ~5.3h ❌ | 0.09s | Columnstore index helps query only |
+| row_by_row | 72.25s | ~5.7h ❌ | 0.11s | Same as bulk — TDS dominates |
+
+Key finding: All SQL Server write variants are ~equal speed because pymssql TDS protocol is the bottleneck, not the insert method. SQL Server lacks a Python-accessible equivalent of Postgres COPY FROM.
+
+Columnstore index reduces query time to 0.09s (near DuckDB levels) but cannot fix write performance from Python.
+
+---
+
 ## Top 3 Winners
 
 ### Write
@@ -156,3 +170,18 @@ Writing 8,049 individual ticker files requires: opening a file handle, writing t
 At 48 tickers (Phase 1) this was invisible — 48 file opens ≈ 5-50ms. At 8,049 tickers it becomes the dominant cost. This is why partitioned write extrapolates poorly: the O(p) term is not about data volume but about filesystem operation count. Parallelizing writes with multiprocessing (one worker per ticker batch) would reduce this to O(p/workers).
 
 The tradeoff is worth it for read-heavy workloads: reading a single ticker touches exactly 1 file regardless of how many total tickers exist — true O(1) with partition pruning.
+
+### Why SQL Server write is slow from Python (TDS protocol)
+
+SQL Server communicates via TDS (Tabular Data Stream) protocol. Unlike Postgres libpq which has a COPY streaming mode that bypasses row-level parsing, TDS requires every row to be individually framed, typed, and transmitted — even with executemany(). pymssql has no equivalent of psycopg2's copy_from() or copy_expert().
+
+The result: bulk_insert, batch_insert, and row_by_row all take ~70s per 100K rows — extrapolating to ~5.7h at 28M rows. The bottleneck is the protocol, not the database engine itself. SQL Server's native BCP (Bulk Copy Program) utility can load 28M rows in minutes, but it requires file-level access to the server filesystem — not accessible from a Docker container via Python client.
+
+### Why SQL Server Columnstore Index changes query performance
+
+A standard SQL Server table uses row-oriented heap storage (same as Postgres). Adding a Clustered Columnstore Index physically reorganizes the data into columnar format — the same principle as DuckDB and Parquet. This allows:
+- Column pruning: only ticker and close are read for AVG/MAX/MIN query
+- Batch mode execution: SQL Server processes 900 rows per batch using SIMD instructions
+- Compression: columnar data compresses 5-10x better than row storage
+
+Result: query drops from ~0.11s (row) to ~0.09s (columnstore) on 100K rows. At 28M rows the gap would be much larger — columnstore scales logarithmically for aggregation queries while row storage scales linearly.

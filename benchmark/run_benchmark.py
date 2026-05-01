@@ -24,6 +24,9 @@ DNF_LOADERS = [
     "loaders.postgres.row_by_row",
     "loaders.postgres.batch_insert",
     "loaders.parquet.partitioned",
+    "loaders.sqlserver.row_by_row",
+    "loaders.sqlserver.bulk_insert",
+    "loaders.sqlserver.bulk_columnstore",
 ]
 
 FULL_ROW_COUNT = 28_151_758
@@ -36,6 +39,7 @@ _FULL_PATH = os.path.join(_RAW_DIR, "all_stocks.csv")
 
 def run_dnf_subset():
     print("=== Running DNF variants on 100K subset + extrapolating to 28M ===")
+    print("(includes slow/untested loaders: sqlserver variants, row-by-row, batch insert, partitioned parquet)")
 
     # Write subset CSV
     print(f"Creating {SUBSET_ROWS:,}-row subset at {_SUBSET_PATH}...")
