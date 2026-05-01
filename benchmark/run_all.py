@@ -12,6 +12,7 @@ RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", "results", "benchma
 # ANSI colours (work in any modern terminal)
 _GREEN = "\033[92m"
 _RED = "\033[91m"
+_YELLOW = "\033[93m"
 _BOLD = "\033[1m"
 _RESET = "\033[0m"
 
@@ -63,8 +64,9 @@ def _print_table(rows: list[dict], title: str, highlight: bool = False) -> None:
     )
     sep = "-" * len(header)
 
-    fastest_name = min(rows, key=lambda r: r[COL_DUR])[COL_NAME] if highlight else None
-    slowest_name = max(rows, key=lambda r: r[COL_DUR])[COL_NAME] if highlight else None
+    valid_rows = [r for r in rows if r[COL_DUR] != -1.0]
+    fastest_name = min(valid_rows, key=lambda r: r[COL_DUR])[COL_NAME] if highlight and valid_rows else None
+    slowest_name = max(valid_rows, key=lambda r: r[COL_DUR])[COL_NAME] if highlight and valid_rows else None
 
     print(f"\n{_BOLD}{title}{_RESET}")
     print(sep)
@@ -73,19 +75,30 @@ def _print_table(rows: list[dict], title: str, highlight: bool = False) -> None:
 
     for r in rows:
         name = r[COL_NAME]
-        line = (
-            f"{name:<{w_name}}"
-            f"{r[COL_DUR]:>{w_dur}.4f}"
-            f"{r[COL_RAM]:>{w_ram}.2f}"
-            f"{r[COL_CPU]:>{w_cpu}.2f}"
-            f"{r[COL_DISK]:>{w_disk}.2f}"
-        )
-        if highlight and name == fastest_name:
-            print(f"{_GREEN}{line}  << fastest{_RESET}")
-        elif highlight and name == slowest_name:
-            print(f"{_RED}{line}  << slowest{_RESET}")
+        if r[COL_DUR] == -1.0:
+            dnf_label = "DNF (~5h48m)"
+            line = (
+                f"{name:<{w_name}}"
+                f"{dnf_label:>{w_dur}}"
+                f"{'—':>{w_ram}}"
+                f"{'—':>{w_cpu}}"
+                f"{'—':>{w_disk}}"
+            )
+            print(f"{_YELLOW}{line}{_RESET}")
         else:
-            print(line)
+            line = (
+                f"{name:<{w_name}}"
+                f"{r[COL_DUR]:>{w_dur}.4f}"
+                f"{r[COL_RAM]:>{w_ram}.2f}"
+                f"{r[COL_CPU]:>{w_cpu}.2f}"
+                f"{r[COL_DISK]:>{w_disk}.2f}"
+            )
+            if highlight and name == fastest_name:
+                print(f"{_GREEN}{line}  << fastest{_RESET}")
+            elif highlight and name == slowest_name:
+                print(f"{_RED}{line}  << slowest{_RESET}")
+            else:
+                print(line)
 
     print(sep)
 

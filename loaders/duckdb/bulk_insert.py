@@ -34,6 +34,7 @@ def write():
     print("Loading CSV...")
     df = pd.read_csv(RAW_CSV)
     df.columns = df.columns.str.lower()
+    df["volume"] = df["volume"].fillna(0).astype("int64")
     print(f"Loaded {len(df)} rows from CSV")
     bulk_df = df[["date", "ticker", "open", "high", "low", "close", "volume"]]
     print("Running write benchmark (bulk_insert)...")
