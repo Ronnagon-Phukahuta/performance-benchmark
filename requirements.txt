@@ -1,0 +1,8 @@
+yfinance==0.2.54
+duckdb==1.2.2
+polars==1.20.0
+psutil==6.1.1
+pandas==2.2.3
+pyarrow==19.0.1
+psycopg2-binary==2.9.10
+sqlalchemy==2.0.40

@@ -1,0 +1,25 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Data files (too large for git)
+data/
+kaggle-dataset/
+
+# Results JSON (raw data, keep only summaries)
+results/benchmark_results.json
+
+# Environment
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
