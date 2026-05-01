@@ -35,6 +35,7 @@ def write():
     print("Loading CSV...")
     df = pd.read_csv(RAW_CSV)
     df.columns = df.columns.str.lower()
+    df["volume"] = df["volume"].fillna(0).astype("int64")
     print(f"Loaded {len(df)} rows from CSV")
     rows = df[["date", "ticker", "open", "high", "low", "close", "volume"]].values.tolist()
     total = -(-len(rows) // BATCH_SIZE)  # ceiling division
