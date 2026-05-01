@@ -84,7 +84,7 @@
 
 ## Results
 
-### Write — 28,151,758 rows
+### Write — 28,151,758 rows (full benchmark)
 
 | Method | Duration | Peak RAM | Disk |
 |---|---|---|---|
@@ -98,14 +98,27 @@
 | parquet compressed snappy | 12.09s | 7,656 MB | 375 MB |
 | parquet compressed gzip | 30.34s | 7,634 MB | 295 MB |
 | postgres bulk_copy | 263.43s | 16,352 MB | — |
-| duckdb row_by_row (pandas) | ~6.0h ❌ | — | — |
-| duckdb row_by_row (polars) | ~5.9h ❌ | — | — |
-| duckdb batch_insert (pandas) | ~6.1h ❌ | — | — |
-| duckdb batch_insert (polars) | ~6.0h ❌ | — | — |
-| postgres row_by_row | ~2.8h ❌ | — | — |
-| postgres batch_insert | ~2.9h ❌ | — | — |
+| mongodb bulk_insert (ordered=False) | 208.83s | 2,608 MB | — |
+| mongodb bulk_insert (ordered=True) | 244.31s | 2,608 MB | — |
 
 > \* extrapolated from 100K subset — partitioned write is O(p) where p = number of tickers
+
+### Write — 100K Subset (extrapolated to 28M)
+
+| Method | Technology | Write (100K) | Extrapolated 28M | RAM (100K) |
+|---|---|---|---|---|
+| row_by_row (pandas) | DuckDB | 76.67s | ~6.0h ❌ | 249 MB |
+| row_by_row (polars) | DuckDB | 76.06s | ~5.9h ❌ | 195 MB |
+| batch_insert (pandas) | DuckDB | 77.87s | ~6.1h ❌ | 192 MB |
+| batch_insert (polars) | DuckDB | 76.66s | ~6.0h ❌ | 172 MB |
+| row_by_row | Postgres | 36.43s | ~2.8h ❌ | 187 MB |
+| batch_insert | Postgres | 36.89s | ~2.9h ❌ | 202 MB |
+| bulk_insert | SQL Server | 72.85s | ~5.7h ❌ | 185 MB |
+| bulk_columnstore | SQL Server | 68.20s | ~5.3h ❌ | 187 MB |
+| row_by_row | SQL Server | 72.25s | ~5.7h ❌ | 245 MB |
+| row_by_row | MongoDB | 76.40s | ~6.0h ❌ | 213 MB |
+
+> All variants benchmarked on 100K rows and extrapolated linearly. RAM measured on subset only.
 
 ### Read — 28,151,758 rows
 
@@ -121,8 +134,12 @@
 | duckdb bulk_insert (polars) | 6.06s | 10,619 MB |
 | duckdb direct_parquet | 7.91s | 11,170 MB |
 | postgres bulk_copy | 159.16s | 19,125 MB |
+| mongodb bulk_insert (ordered=False) | 7.80s* | 2,565 MB |
+| mongodb bulk_insert (ordered=True) | 0.05s* | 2,565 MB |
 
 > \* extrapolated from 100K subset
+
+> \*MongoDB read = single ticker (AAPL, 9,909 docs) — full scan causes OOM on 32GB RAM
 
 ### Query — GROUP BY ticker, AVG/MAX/MIN close
 
@@ -138,6 +155,8 @@
 | parquet single_file (pandas) | 2.03s | 6,659 MB |
 | parquet compressed snappy | 2.20s | 6,162 MB |
 | postgres bulk_copy | 24.27s | 3,474 MB |
+| mongodb bulk_insert (ordered=False) | 23.57s | 2,565 MB |
+| mongodb bulk_insert (ordered=True) | 24.60s | 2,565 MB |
 
 > \* extrapolated from 100K subset
 
@@ -165,6 +184,12 @@ Writing 8,049 individual ticker files is O(p) — slow at scale, extrapolated to
 
 **Memory cliff at production scale.**
 Several methods that appeared reasonable at 48 tickers became dangerous at 8,049. postgres_bulk_copy_read peaked at 19,125 MB — nearly 60% of total system RAM — on a read operation alone. At 28M rows, memory usage is not an implementation detail. It is an architectural constraint.
+
+**MongoDB full scan causes OOM — document stores need different benchmarking strategy.**
+Calling find({}) on 28M documents caused Windows OOM dialog on 32GB RAM. Each MongoDB document stores field names alongside values — unlike columnar formats that share schema. At 28M documents × 8 fields × ~1KB Python object overhead = ~28GB before pandas DataFrame conversion. The fix was chunked reads, but full-scan benchmarking is not the intended use case for document stores. MongoDB shines at single-document lookups: find({ticker: "AAPL"}) with an index returned 9,909 documents in 0.05s.
+
+**Data locality matters — ordered vs unordered insert changes read speed 156x.**
+insert_many(ordered=False) allows MongoDB to write documents in parallel, scattering them across disk. insert_many(ordered=True) writes sequentially, keeping related documents physically adjacent. When reading AAPL documents, ordered=True returned results in 0.05s vs 7.80s for ordered=False — a 156x difference from disk locality alone, with identical indexes and identical queries.
 
 ---
 

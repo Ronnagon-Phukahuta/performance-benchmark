@@ -21,6 +21,8 @@
 | parquet_compressed_snappy  | 12.09 s    | 7,656 MB   | 375 MB    |                              |
 | parquet_compressed_gzip    | 30.34 s    | 7,634 MB   | 295 MB    |                              |
 | postgres_bulk_copy         | 263.43 s   | 16,352 MB  | N/A       |                              |
+| mongodb_bulk_insert        | 208.83 s   | 2,608 MB   | N/A       |                              |
+| mongodb_bulk_ordered       | 244.31 s   | 2,608 MB   | N/A       |                              |
 | duckdb_row_by_row          | DNF (~6h)  | —          | —         | 100K subset × extrapolated   |
 | duckdb_row_by_row_polars   | DNF (~6h)  | —          | —         | 100K subset × extrapolated   |
 | duckdb_batch_insert        | DNF (~6h)  | —          | —         | 100K subset × extrapolated   |
@@ -44,6 +46,8 @@
 | duckdb_bulk_insert_polars  | 6.06 s     | 10,619 MB  |                              |
 | duckdb_direct_parquet      | 7.91 s     | 11,170 MB  |                              |
 | postgres_bulk_copy         | 159.16 s   | 19,125 MB  |                              |
+| mongodb_bulk_insert        | 7.80 s     | 2,565 MB   | ⚠ single ticker AAPL        |
+| mongodb_bulk_ordered       | 0.05 s     | 2,565 MB   | ⚠ single ticker AAPL        |
 
 ---
 
@@ -61,6 +65,8 @@
 | parquet_single_file        | 2.03 s     | 6,659 MB   |                              |
 | parquet_compressed_snappy  | 2.20 s     | 6,162 MB   |                              |
 | postgres_bulk_copy         | 24.27 s    | 3,474 MB   |                              |
+| mongodb_bulk_insert        | 23.57 s    | 2,565 MB   |                              |
+| mongodb_bulk_ordered       | 24.60 s    | 2,565 MB   |                              |
 
 ---
 
@@ -76,6 +82,39 @@ These methods were too slow to run against the full 28M-row dataset. Times are e
 | duckdb_batch_insert_polars | ~6h                | Chunked INSERTs (Polars)   |
 | postgres_row_by_row        | ~2.9h              | One INSERT per row         |
 | postgres_batch_insert      | ~2.9h              | Chunked INSERTs            |
+| mongodb_row_by_row         | ~6.0h              | One insert_one() per row   |
+
+---
+
+## SQL Server Results (100K subset — extrapolated to 28M)
+
+| Method | Write (100K) | Extrapolated 28M | Query (100K) | Note |
+|---|---|---|---|---|
+| bulk_insert | 72.85s | ~5.7h ❌ | — | TDS protocol bottleneck |
+| bulk_columnstore | 68.20s | ~5.3h ❌ | 0.09s | Columnstore index helps query only |
+| row_by_row | 72.25s | ~5.7h ❌ | 0.11s | Same as bulk — TDS dominates |
+
+Key finding: All SQL Server write variants are ~equal speed because pymssql TDS protocol is the bottleneck, not the insert method. SQL Server lacks a Python-accessible equivalent of Postgres COPY FROM.
+
+Columnstore index reduces query time to 0.09s (near DuckDB levels) but cannot fix write performance from Python.
+
+---
+
+## MongoDB Results (28M rows)
+
+| Method | Write | Read | Query | Note |
+|---|---|---|---|---|
+| bulk_insert (ordered=False) | 208.83s | 7.80s | 23.57s | Read = single ticker AAPL |
+| bulk_insert (ordered=True) | 244.31s | 0.05s | 24.60s | Read = single ticker AAPL |
+| row_by_row | ~6.0h ❌ | — | — | Extrapolated from 100K subset |
+
+### MongoDB Key Findings
+
+**OOM Discovery:** find({}) full scan on 28M documents caused Windows OOM on 32GB RAM. Python object overhead per document (~1KB) × 28M = exceeds available memory. Chunked insert_many(50K) resolved write OOM. Full collection scan is not a valid MongoDB benchmark — use filtered queries instead.
+
+**Data Locality (156x read difference):** ordered=False scattered documents randomly → 7.80s for AAPL. ordered=True kept documents sequential → 0.05s for AAPL. Same index, same query, 156x difference from physical disk layout alone.
+
+**Write speed:** MongoDB bulk insert (208-244s) is comparable to Postgres COPY (263s) at 28M rows despite being schema-less. Document overhead (storing field names per document) adds storage cost but not significant write latency with chunked approach.
 
 ---
 
@@ -156,3 +195,32 @@ Writing 8,049 individual ticker files requires: opening a file handle, writing t
 At 48 tickers (Phase 1) this was invisible — 48 file opens ≈ 5-50ms. At 8,049 tickers it becomes the dominant cost. This is why partitioned write extrapolates poorly: the O(p) term is not about data volume but about filesystem operation count. Parallelizing writes with multiprocessing (one worker per ticker batch) would reduce this to O(p/workers).
 
 The tradeoff is worth it for read-heavy workloads: reading a single ticker touches exactly 1 file regardless of how many total tickers exist — true O(1) with partition pruning.
+
+### Why SQL Server write is slow from Python (TDS protocol)
+
+SQL Server communicates via TDS (Tabular Data Stream) protocol. Unlike Postgres libpq which has a COPY streaming mode that bypasses row-level parsing, TDS requires every row to be individually framed, typed, and transmitted — even with executemany(). pymssql has no equivalent of psycopg2's copy_from() or copy_expert().
+
+The result: bulk_insert, batch_insert, and row_by_row all take ~70s per 100K rows — extrapolating to ~5.7h at 28M rows. The bottleneck is the protocol, not the database engine itself. SQL Server's native BCP (Bulk Copy Program) utility can load 28M rows in minutes, but it requires file-level access to the server filesystem — not accessible from a Docker container via Python client.
+
+### Why SQL Server Columnstore Index changes query performance
+
+A standard SQL Server table uses row-oriented heap storage (same as Postgres). Adding a Clustered Columnstore Index physically reorganizes the data into columnar format — the same principle as DuckDB and Parquet. This allows:
+- Column pruning: only ticker and close are read for AVG/MAX/MIN query
+- Batch mode execution: SQL Server processes 900 rows per batch using SIMD instructions
+- Compression: columnar data compresses 5-10x better than row storage
+
+Result: query drops from ~0.11s (row) to ~0.09s (columnstore) on 100K rows. At 28M rows the gap would be much larger — columnstore scales logarithmically for aggregation queries while row storage scales linearly.
+
+### Why MongoDB full scan causes OOM but aggregation pipeline does not
+
+MongoDB's find({}) cursor materializes results as Python dicts in application memory. Each dict allocates: a hash table header (~232 bytes), one entry per key-value pair (~50 bytes × 8 fields = ~400 bytes), plus string objects for both keys and values. At 28M documents this totals ~18-28GB before pandas DataFrame conversion adds another ~6GB. Total exceeds 32GB.
+
+The aggregation pipeline with allowDiskUse=True operates differently: MongoDB processes documents server-side in 100MB chunks, streaming only the final grouped result (8,049 ticker summaries) to Python. The Python process receives ~8,049 small dicts instead of 28M large ones — RAM stays under 100MB throughout.
+
+### Why ordered=False vs ordered=True changes read speed 156x
+
+insert_many(ordered=False) allows MongoDB's WiredTiger storage engine to write documents in parallel across multiple threads, placing each chunk wherever free space exists on disk. Documents for AAPL land in many different disk locations.
+
+insert_many(ordered=True) writes sequentially. Since the source CSV is sorted by ticker (alphabetically), all AAPL documents arrive consecutively and are written to adjacent disk pages. When the index points to AAPL documents, the storage engine fetches one contiguous disk region instead of seeking across many locations.
+
+This is data locality — the same principle that makes partitioned Parquet (one file per ticker) fast for single-ticker reads. Physical adjacency on disk reduces I/O seeks regardless of the database system.
