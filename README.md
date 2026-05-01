@@ -193,6 +193,23 @@ insert_many(ordered=False) allows MongoDB to write documents in parallel, scatte
 
 ---
 
+## Examples — Anti-Patterns & Failure Cases
+
+Real failures discovered during benchmarking, preserved as educational examples.
+
+> These patterns worked fine at 48 tickers (Phase 1). They failed catastrophically at 28M rows (Phase 2). Scale reveals what correctness hides.
+
+See [`examples/`](examples/README.md) for full details.
+
+| Example | Pattern | Result |
+|---|---|---|
+| `examples/oom/mongodb_to_dicts_oom.py` | `to_dicts()` on 28M docs | OOM — 31GB RAM, Windows dialog |
+| `examples/oom/mongodb_full_scan_oom.py` | `find({})` full collection scan | MemoryError mid-cursor |
+| `examples/performance/parquet_partitioned_naive.py` | O(n×p) per-ticker loop | ~2h DNF at 8,049 tickers |
+| `examples/performance/duckdb_row_by_row_vs_batch.py` | Python loop overhead | batch ≈ row_by_row (~6h both) |
+
+---
+
 ## How to Run
 
 ```bash
