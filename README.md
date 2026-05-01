@@ -51,8 +51,13 @@
 ### Complexity Growth Rates
 ![Big O Classic](results/complexity_classic.png)
 
-### At 28M Rows — Real Impact
-![Big O Benchmark Scale](results/complexity_chart.png)
+### Log-Log Scale
+> All curves appear linear — this is why log-log can be misleading
+![Log-Log Scale](results/complexity_loglog.png)
+
+### Linear Scale
+> True shape — O(n²) is off the chart, O(1) is flat, O(n) is diagonal
+![Linear Scale](results/complexity_linear.png)
 
 | Method | Technology | Write | Read | Query | Write note |
 |---|---|---|---|---|---|
