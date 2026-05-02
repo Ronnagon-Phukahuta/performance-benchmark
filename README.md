@@ -262,7 +262,8 @@ performance-benchmark/
 │   └── kaggle_loader.py    # builds all_stocks.csv from 8,049 CSV files
 ├── results/
 │   ├── benchmark_results.json
-│   └── benchmark_summary.md
+│   ├── bulk_load_benchmark.md
+│   └── star_schema_benchmark.md
 ├── data/
 │   ├── raw/                # all_stocks.csv (2.46 GB)
 │   ├── duckdb/             # DuckDB database files
