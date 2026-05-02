@@ -1,6 +1,9 @@
 ﻿# Performance Benchmark — Python Data Storage
 
-> Benchmarking DuckDB, Parquet, and PostgreSQL on 28,151,758 rows of real financial data across 8,049 stock and ETF tickers spanning 40+ years.
+> Benchmarking DuckDB, Parquet, PostgreSQL, SQL Server, and MongoDB on 28,151,758 rows of real financial data across 8,049 stock and ETF tickers spanning 40+ years. Covers bulk load, star schema, OLTP indexed queries, JOIN performance, and concurrent reads.
+
+> **Phase 1–3 establish the baseline — no connection pooling, no query optimisation, no engine tuning. Every paradigm runs with default configuration out of the box. The goal is to understand architectural differences before any optimisation is applied.
+> Phase 4+ will introduce targeted optimisations (e.g. Polars vs Pandas, connection pooling, index strategies) and measure the delta against these baselines.**
 
 ---
 
@@ -162,6 +165,15 @@
 
 ---
 
+## Benchmark Summaries
+
+| File | Focus |
+|---|---|
+| [results/bulk_load_benchmark.md](results/bulk_load_benchmark.md) | Bulk load — Write / Read / Analytical query across 5 paradigms |
+| [results/star_schema_benchmark.md](results/star_schema_benchmark.md) | Star Schema — JOIN / OLTP indexed / no-index / Concurrent reads |
+
+---
+
 ## Key Insights
 
 **Algorithm dominates hardware.**
@@ -233,6 +245,18 @@ py -m loaders.kaggle_loader
 # 5. Run all benchmarks
 py -m benchmark.run_benchmark
 
+# Phase 3 — Star Schema benchmarks
+# Generate star schema data (run once)
+py -m data_prep.generate_star_schema
+
+# Run star schema benchmarks per paradigm
+py -m loaders.duckdb.star_schema
+py -m loaders.parquet.star_schema
+py -m loaders.postgres.star_schema
+py -m loaders.sqlserver.star_schema
+py -m loaders.mongodb.star_schema_embedded
+py -m loaders.mongodb.star_schema_lookup
+
 # 6. View results table
 py -m benchmark.run_all
 
@@ -259,14 +283,22 @@ performance-benchmark/
 │   ├── duckdb/             # 7 variants: row_by_row, batch, bulk, copy_csv, direct_parquet
 │   ├── parquet/            # 5 variants: single_file, lazy, compressed, partitioned
 │   ├── postgres/           # 3 variants: row_by_row, batch, bulk_copy
+│   ├── sqlserver/          # 3 variants: bulk_insert, bulk_columnstore, row_by_row
+│   ├── mongodb/            # 4 variants: bulk_insert, row_by_row, star_schema_embedded, star_schema_lookup
 │   └── kaggle_loader.py    # builds all_stocks.csv from 8,049 CSV files
+├── data_prep/
+│   ├── generate_star_schema.py   # builds dim_symbols.csv + fact_prices.csv
+│   └── generate_sample.py        # builds fact_prices_sample.csv (100K rows)
 ├── results/
 │   ├── benchmark_results.json
-│   └── benchmark_summary.md
+│   ├── bulk_load_benchmark.md
+│   ├── star_schema_benchmark.md
+│   └── README.md
 ├── data/
 │   ├── raw/                # all_stocks.csv (2.46 GB)
 │   ├── duckdb/             # DuckDB database files
 │   ├── parquet/            # Parquet files
+│   ├── star_schema/        # dim_symbols.csv, fact_prices.csv, fact_prices_sample.csv
 │   └── postgres/           # (managed by Docker)
 ├── kaggle-dataset/
 │   ├── stocks/             # 5,884 CSV files
