@@ -52,6 +52,12 @@ QUERY_OLTP_SQL = """
       AND date BETWEEN %s AND %s
 """
 
+QUERY_OLTP_NO_INDEX_SQL = """
+    SELECT * FROM fact_prices_no_index
+    WHERE ticker_id = %s
+      AND date BETWEEN %s AND %s
+"""
+
 
 def _connect():
     return psycopg2.connect(**DSN)
@@ -130,6 +136,47 @@ def query_oltp() -> list:
     return result
 
 
+def write_fact_no_index() -> None:
+    print(f"Running write_fact_no_index benchmark (COPY {FACT_CSV} → fact_prices_no_index, no index)...")
+    with measure("postgres_star_write_fact_no_index", data_path="") as m:
+        conn = _connect()
+        cur = conn.cursor()
+        cur.execute("DROP TABLE IF EXISTS fact_prices_no_index")
+        cur.execute("""
+            CREATE TABLE fact_prices_no_index (
+                ticker_id INT,
+                date      DATE,
+                open      FLOAT,
+                high      FLOAT,
+                low       FLOAT,
+                close     FLOAT,
+                volume    FLOAT
+            )
+        """)
+        _copy_csv(cur, "fact_prices_no_index", FACT_CSV)
+        conn.commit()
+        cur.execute("SELECT COUNT(*) FROM fact_prices_no_index")
+        row_count = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+    print(f"write_fact_no_index done: {m.value.duration_sec:.2f}s | RAM: {m.value.peak_ram_mb:.1f}MB | "
+          f"Rows: {row_count:,}")
+
+
+def query_oltp_no_index() -> list:
+    print("Running query_oltp_no_index benchmark (fact_prices_no_index, ticker_id=1, date range 2020–2023)...")
+    with measure("postgres_star_query_oltp_no_index", data_path="") as m:
+        conn = _connect()
+        cur = conn.cursor()
+        cur.execute(QUERY_OLTP_NO_INDEX_SQL, (1, "2020-01-01", "2023-12-31"))
+        result = cur.fetchall()
+        cur.close()
+        conn.close()
+    print(f"query_oltp_no_index done: {m.value.duration_sec:.2f}s | RAM: {m.value.peak_ram_mb:.1f}MB | "
+          f"Rows: {len(result):,}")
+    return result
+
+
 def query_concurrent(n_threads: int = 10) -> None:
     print(f"Running query_concurrent benchmark ({n_threads} threads)...")
     errors: list[Exception] = []
@@ -163,8 +210,10 @@ def query_concurrent(n_threads: int = 10) -> None:
 if __name__ == "__main__":
     write_dim()
     write_fact()
+    write_fact_no_index()
     query_join()
     query_oltp()
+    query_oltp_no_index()
     for n in [5, 10, 20]:
         query_concurrent(n)
     print("All benchmarks complete.")

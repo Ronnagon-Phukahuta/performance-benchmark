@@ -10,16 +10,16 @@
 
 ## Star Schema Write Performance
 
-| Method                  | write_dim | write_fact   | Peak RAM   | Disk      | Notes                                    |
-|-------------------------|-----------|--------------|------------|-----------|------------------------------------------|
-| DuckDB                  | 0.11 s    | 8.30 s       | 2,494 MB   | 7,583 MB  |                                          |
-| Parquet                 | 0.04 s    | 8.07 s       | 4,050 MB   | 319 MB    |                                          |
-| Postgres                | 0.40 s    | 234.38 s     | 27 MB      | N/A       | COPY FROM STDIN, server-side             |
-| SQL Server              | 4.92 s    | 67.37 s      | 33 MB      | N/A       | ⚠ 100K sample — ~5.2h extrapolated      |
-| MongoDB embedded        | N/A       | 270.21 s     | 1,890 MB   | N/A       | Sector/industry/exchange embedded per doc |
-| MongoDB lookup          | N/A       | 221.15 s     | 1,906 MB   | N/A       | Two collections: prices + symbols         |
+| Method                  | write_dim | write_fact (indexed) | write_fact (no index) | Peak RAM   | Disk      | Notes                                         |
+|-------------------------|-----------|----------------------|-----------------------|------------|-----------|-----------------------------------------------|
+| DuckDB                  | 0.17 s    | 8.44 s               | 3.39 s                | 2,587 MB   | 8,504 MB  |                                               |
+| Parquet                 | 0.04 s    | 8.07 s               | 8.07 s                | 4,050 MB   | 319 MB    | No index concept — same speed                 |
+| Postgres                | 0.17 s    | 224.45 s             | 178.72 s              | 27 MB      | N/A       | COPY FROM STDIN, server-side                  |
+| SQL Server              | 5.04 s    | 65.80 s              | 64.77 s               | 33 MB      | N/A       | ⚠ 100K sample — ~315 min extrapolated        |
+| MongoDB embedded        | N/A       | 270.21 s             | N/A                   | 1,890 MB   | N/A       | Sector/industry/exchange embedded per doc     |
+| MongoDB lookup          | N/A       | 221.15 s             | N/A                   | 1,906 MB   | N/A       | Two collections: prices + symbols             |
 
-> SQL Server write_fact DNF at 28M rows — benchmarked on 100K subset, extrapolated linearly (~5.2h). TDS protocol bottleneck — see Why section.
+> SQL Server write_fact DNF at 28M rows — benchmarked on 100K subset, extrapolated linearly (~315 min). TDS protocol bottleneck — see Why section.
 
 ---
 
@@ -38,14 +38,14 @@
 
 ## OLTP Query Performance (single ticker_id=1, date range 2020–2023)
 
-| Method              | Duration  | Peak RAM   | Rows    | Notes                                       |
-|---------------------|-----------|------------|---------|---------------------------------------------|
-| MongoDB lookup      | 0.01 s    | 1,868 MB   | 63 rows | Direct B-tree index hit on ticker_id        |
-| DuckDB              | 0.02 s    | 100 MB     | 63 rows | Indexed seek on ticker_id                   |
-| Parquet + Polars    | 0.03 s    | 1,792 MB   | 63 rows | Full scan filter — no index in Parquet      |
-| Postgres            | 0.10 s    | 27 MB      | 63 rows | Index scan on idx_fact_ticker               |
-| SQL Server          | 0.10 s    | 33 MB      | 63 rows | Index scan on idx_fact_ticker               |
-| MongoDB embedded    | 0.02 s    | 1,850 MB   | 63 rows | B-tree index on ticker_id                   |
+| Method              | indexed   | no index   | Peak RAM   | Rows    | Notes                                           |
+|---------------------|-----------|------------|------------|---------|-------------------------------------------------|
+| MongoDB lookup      | 0.01 s    | N/A        | 1,868 MB   | 63 rows | Direct B-tree index hit on ticker_id            |
+| DuckDB              | 0.02 s    | 0.02 s     | 404 MB     | 63 rows | Columnar scan — index has no effect             |
+| MongoDB embedded    | 0.02 s    | N/A        | 1,850 MB   | 63 rows | B-tree index on ticker_id                       |
+| Parquet + Polars    | 0.03 s    | 0.03 s     | 1,792 MB   | 63 rows | Always full scan — no index concept             |
+| Postgres            | 0.03 s    | 16.19 s    | 27 MB      | 63 rows | Index: O(log n) seek; no index: full heap scan  |
+| SQL Server          | 0.11 s    | 0.13 s     | 33 MB      | 63 rows | ⚠ 100K sample only                             |
 
 ---
 
@@ -74,10 +74,15 @@
 
 ## Top 3 Winners per Category
 
-### Star Schema Write (fact table, full 28M rows)
+### Star Schema Write (fact table, full 28M rows — indexed)
 1. **Parquet** — 8.07 s, 319 MB disk *(smallest disk footprint by 24×)*
-2. **DuckDB** — 8.30 s, but 7,583 MB disk
+2. **DuckDB** — 8.44 s, but 8,504 MB disk
 3. **MongoDB lookup** — 221.15 s *(document store, no COPY equivalent)*
+
+### Write (no index — fastest raw ingest)
+1. **DuckDB** — 3.39 s *(2.5× faster than indexed)*
+2. **Parquet** — 8.07 s *(no index concept — same speed)*
+3. **Postgres** — 178.72 s *(1.26× faster than indexed)*
 
 ### JOIN Query (GROUP BY sector)
 1. **Parquet + Polars** — 0.89 s *(lazy evaluation + columnar scan)*
@@ -162,10 +167,57 @@ To estimate 28M performance: the single-thread `query_join` on 100K rows took 0.
 
 SQL Server's columnstore index (from Phase 2) would improve single-query time at 28M rows to ~0.5–2s based on batch mode execution scaling, which would put concurrent reads in the 5–20s range. However, this would require the columnstore variant (Phase 2 `bulk_columnstore.py`) rather than the standard B-tree index used in this phase. The 100K results demonstrate SQL Server's query engine is capable — the constraint is exclusively the write path (TDS protocol) and the impracticality of loading 28M rows from Python without BCP.
 
-### MongoDB WiredTiger cache — operational gotcha
+### Why DuckDB index has no effect on OLTP query but Postgres index gives 540× speedup
 
-After completing the embedded benchmark (28M embedded documents with extra fields), Windows Task Manager showed `VmmemWSL` consuming approximately 12 GB. The lookup benchmark (two separate collections) showed similar behaviour — peak RAM during write reached 1,906 MB inside WSL, and WiredTiger retained the cache after the benchmark completed. The cache size is not tied to document schema (embedded vs normalized) but to the total working set size scanned — both variants scanned the full 28M-document prices collection. Running `wsl --shutdown` reduced this to ~5.5 GB but did not fully release the memory to Windows.
+DuckDB is a vectorized OLAP engine — its columnar scan processes 28M rows using SIMD instructions in batches of 1,024 values. Scanning `ticker_id` and `date` columns across 28M rows takes ~0.02s regardless of index presence, because the engine reads only those two columns from disk (columnar projection) and processes them at CPU cache speed.
 
-WiredTiger's default cache size is `(totalRAM - 1GB) / 2`, targeting ~15 GB on a 32 GB system. Under analytical load (full `$group` scan of 28M documents), WiredTiger aggressively pages the working set into its cache and does not proactively evict it after the query completes — it assumes subsequent queries will benefit from cached pages. This is correct behaviour for a production database with continuous load, but problematic on a shared development machine.
+Postgres is a row-oriented OLTP engine. Without an index, it must read every heap page sequentially — 28M rows × 8 columns × ~50 bytes = gigabytes of I/O for a query returning 63 rows. With a B-tree index on `ticker_id`, Postgres performs O(log n) lookups directly to matching heap pages — skipping all 28M rows except the 63 that match.
 
-The practical implication: MongoDB in a shared environment requires an explicit `wiredTigerCacheSizeGB` setting in `mongod.conf`. A value of 2–4 GB is appropriate for development. Without this, MongoDB will consume half of available RAM and hold it indefinitely, causing memory pressure on any other service on the same host. This is not a bug — it is a deliberate caching strategy that requires operator configuration to match the deployment context.
+Result: index is essential for Postgres OLTP queries, irrelevant for DuckDB. This is the practical difference between OLAP and OLTP engine design.
+
+### Why DuckDB write is 2.5× faster without index but Postgres only 1.26×
+
+DuckDB must maintain a B-tree index in its internal format during every INSERT. At 28M rows, this means 28M B-tree insertions — each requiring a page lookup, potential page split, and write-ahead log entry. Removing the index eliminates this entirely: `write_fact` drops from 8.44 s to 3.39 s.
+
+Postgres write overhead from index is smaller (224 s → 178 s) because Postgres COPY FROM is already I/O bound — the bottleneck is heap page allocation and WAL writes, not index maintenance. The index adds overhead but it is not the dominant cost at 28M rows via COPY.
+
+### Why SQL Server no-index shows no meaningful difference (100K sample caveat)
+
+At 100K rows, both indexed and non-indexed variants complete in ~65 s write and ~0.12 s query. The TDS protocol overhead dominates write time regardless of index presence. The dataset is too small for B-tree lookup advantage to appear in query time.
+
+Extrapolating to 28M rows: write would remain ~DNF (~315 min) with or without index — TDS is the bottleneck. Query no-index would likely show a 100–500× penalty similar to Postgres, as SQL Server uses the same row-oriented heap storage.
+
+### Idle memory footprint — cold start per database
+
+Measured on a clean WSL restart with no benchmark running (baseline ~2,893 MB):
+
+| Database | VmmemWSL after start | Delta |
+|---|---|---|
+| Baseline (no DB) | 2,893 MB | — |
+| + MongoDB | 3,382 MB | +489 MB |
+| + SQL Server | 5,513 MB | +2,131 MB |
+| + Postgres | no measurable change | ~0 MB |
+
+SQL Server pre-allocates its buffer pool on startup — memory is claimed immediately regardless of workload. MongoDB allocates lazily — the +489 MB reflects only the WiredTiger engine overhead, not cached data. Postgres forks a lightweight process per connection with a fixed `shared_buffers` default of 128 MB — it does not claim memory until queries actually run.
+
+Production implication: on a shared host, SQL Server requires explicit `max server memory` configuration before first start. MongoDB and Postgres are safer defaults without tuning, though MongoDB will expand aggressively once workload begins (see next section).
+
+### WiredTiger cache retention — memory not returned after workload
+
+During the embedded benchmark (28M documents with embedded sector/industry/exchange), VmmemWSL climbed from ~5,500 MB to ~12,000 MB. After the benchmark completed, MongoDB held the cache — no memory was returned to Windows.
+
+Sequence observed:
+
+| Event | VmmemWSL |
+|---|---|
+| Before benchmark | ~5,500 MB |
+| During embedded write (28M docs) | ~12,000 MB |
+| After benchmark completed | ~12,000 MB (no release) |
+| After `wsl --shutdown` | ~2,893 MB |
+| After `docker start mongodb` | ~3,382 MB (WiredTiger reloads immediately) |
+
+This is deliberate WiredTiger behaviour — it assumes subsequent queries will benefit from cached pages and retains the working set. Correct for a production database with continuous load. Problematic on a shared development machine.
+
+The lookup benchmark showed the same pattern — WiredTiger cache size is determined by working set scanned (28M documents), not by document schema (embedded vs normalized).
+
+Production implication: set explicit `wiredTigerCacheSizeGB` in `mongod.conf`. A value of 2–4 GB is appropriate for development. Without this, MongoDB will consume half of available RAM and hold it indefinitely.

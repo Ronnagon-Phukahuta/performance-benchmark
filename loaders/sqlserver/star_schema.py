@@ -60,6 +60,24 @@ QUERY_OLTP_SQL = """
       AND date BETWEEN %s AND %s
 """
 
+CREATE_FACT_NO_INDEX_SQL = """
+    CREATE TABLE fact_prices_no_index (
+        ticker_id INT,
+        date      DATE,
+        [open]    FLOAT,
+        high      FLOAT,
+        low       FLOAT,
+        [close]   FLOAT,
+        volume    FLOAT
+    )
+"""
+
+QUERY_OLTP_NO_INDEX_SQL = """
+    SELECT * FROM fact_prices_no_index
+    WHERE ticker_id = %s
+      AND date BETWEEN %s AND %s
+"""
+
 
 def _connect():
     return pymssql.connect(HOST, USER, PASSWORD, DATABASE, port=PORT)
@@ -169,6 +187,43 @@ def query_oltp() -> list:
     return result
 
 
+def write_fact_no_index() -> None:
+    print("Note: full 28M rows DNF (~315 min extrapolated). Running on 100k sample.")
+    print(f"Running write_fact_no_index benchmark (executemany chunks → fact_prices_no_index, sample, no index)...")
+    numeric_cols = {"ticker_id", "open", "high", "low", "close", "volume"}
+    placeholders = "%s, %s, %s, %s, %s, %s, %s"
+    with measure("sqlserver_star_write_fact_no_index", data_path="") as m:
+        conn = _connect()
+        cur = conn.cursor()
+        cur.execute("IF OBJECT_ID('fact_prices_no_index') IS NOT NULL DROP TABLE fact_prices_no_index")
+        cur.execute(CREATE_FACT_NO_INDEX_SQL)
+        total = 0
+        for i, chunk in enumerate(_load_csv_chunks(FACT_SAMPLE_CSV, numeric_cols, CHUNK_SIZE), start=1):
+            cur.executemany(f"INSERT INTO fact_prices_no_index VALUES ({placeholders})", chunk)
+            total += len(chunk)
+            if i % 1000 == 0:
+                print(f"  Inserted {total:,} rows...")
+        conn.commit()
+        cur.close()
+        conn.close()
+    print(f"write_fact_no_index done: {m.value.duration_sec:.2f}s | RAM: {m.value.peak_ram_mb:.1f}MB | "
+          f"Rows: {total:,}")
+
+
+def query_oltp_no_index() -> list:
+    print("Running query_oltp_no_index benchmark (fact_prices_no_index, ticker_id=1, date range 2020–2023)...")
+    with measure("sqlserver_star_query_oltp_no_index", data_path="") as m:
+        conn = _connect()
+        cur = conn.cursor()
+        cur.execute(QUERY_OLTP_NO_INDEX_SQL, (1, "2020-01-01", "2023-12-31"))
+        result = cur.fetchall()
+        cur.close()
+        conn.close()
+    print(f"query_oltp_no_index done: {m.value.duration_sec:.2f}s | RAM: {m.value.peak_ram_mb:.1f}MB | "
+          f"Rows: {len(result):,}")
+    return result
+
+
 def query_concurrent(n_threads: int = 10) -> None:
     print(f"Running query_concurrent benchmark ({n_threads} threads)...")
     errors: list[Exception] = []
@@ -202,8 +257,10 @@ def query_concurrent(n_threads: int = 10) -> None:
 if __name__ == "__main__":
     write_dim()
     write_fact()
+    write_fact_no_index()
     query_join()
     query_oltp()
+    query_oltp_no_index()
     for n in [5, 10, 20]:
         query_concurrent(n)
     print("All benchmarks complete.")

@@ -10,6 +10,7 @@ DIM_CSV    = os.path.join(os.path.dirname(__file__), "..", "..", "data", "star_s
 FACT_CSV   = os.path.join(os.path.dirname(__file__), "..", "..", "data", "star_schema", "fact_prices.csv")
 DUCKDB_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "duckdb")
 DUCKDB_PATH = os.path.join(DUCKDB_DIR, "star_schema.db")
+DUCKDB_NO_INDEX_PATH = os.path.join(DUCKDB_DIR, "star_schema_no_index.db")
 
 CREATE_DIM_SQL = """
     CREATE TABLE dim_symbols (
@@ -49,6 +50,25 @@ QUERY_JOIN_SQL = """
 QUERY_OLTP_SQL = """
     SELECT *
     FROM fact_prices
+    WHERE ticker_id = ?
+      AND date BETWEEN ? AND ?
+"""
+
+CREATE_FACT_NO_INDEX_SQL = """
+    CREATE TABLE fact_prices_no_index (
+        ticker_id  INT,
+        date       DATE,
+        open       DOUBLE,
+        high       DOUBLE,
+        low        DOUBLE,
+        close      DOUBLE,
+        volume     DOUBLE
+    )
+"""
+
+QUERY_OLTP_NO_INDEX_SQL = """
+    SELECT *
+    FROM fact_prices_no_index
     WHERE ticker_id = ?
       AND date BETWEEN ? AND ?
 """
@@ -104,6 +124,30 @@ def query_oltp() -> None:
           f"Rows: {len(result):,}")
 
 
+def write_fact_no_index() -> None:
+    fact_csv_abs = os.path.abspath(FACT_CSV)
+    print(f"Running write_fact_no_index benchmark (COPY from {fact_csv_abs}, no index)...")
+    with measure("duckdb_star_write_fact_no_index", data_path=DUCKDB_DIR) as m:
+        con = duckdb.connect(DUCKDB_NO_INDEX_PATH)
+        con.execute("DROP TABLE IF EXISTS fact_prices_no_index")
+        con.execute(CREATE_FACT_NO_INDEX_SQL)
+        con.execute(f"COPY fact_prices_no_index FROM '{fact_csv_abs}' (AUTO_DETECT TRUE)")
+        row_count = con.execute("SELECT COUNT(*) FROM fact_prices_no_index").fetchone()[0]
+        con.close()
+    print(f"write_fact_no_index done: {m.value.duration_sec:.2f}s | RAM: {m.value.peak_ram_mb:.1f}MB | "
+          f"Disk: {m.value.disk_size_mb:.1f}MB | Rows: {row_count:,}")
+
+
+def query_oltp_no_index() -> None:
+    print("Running query_oltp_no_index benchmark (fact_prices_no_index, ticker_id=1, date range 2020–2023)...")
+    with measure("duckdb_star_query_oltp_no_index", data_path=DUCKDB_DIR) as m:
+        con = duckdb.connect(DUCKDB_NO_INDEX_PATH)
+        result = con.execute(QUERY_OLTP_NO_INDEX_SQL, [1, "2020-01-01", "2023-12-31"]).fetchdf()
+        con.close()
+    print(f"query_oltp_no_index done: {m.value.duration_sec:.2f}s | RAM: {m.value.peak_ram_mb:.1f}MB | "
+          f"Rows: {len(result):,}")
+
+
 def query_concurrent(n_threads: int = 10) -> None:
     print(f"Running query_concurrent benchmark ({n_threads} threads)...")
     errors: list[Exception] = []
@@ -134,8 +178,10 @@ def query_concurrent(n_threads: int = 10) -> None:
 if __name__ == "__main__":
     write_dim()
     write_fact()
+    write_fact_no_index()
     query_join()
     query_oltp()
+    query_oltp_no_index()
     for n in [5, 10, 20]:
         query_concurrent(n)
     print("All benchmarks complete.")
