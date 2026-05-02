@@ -2,6 +2,9 @@
 
 > Benchmarking DuckDB, Parquet, PostgreSQL, SQL Server, and MongoDB on 28,151,758 rows of real financial data across 8,049 stock and ETF tickers spanning 40+ years. Covers bulk load, star schema, OLTP indexed queries, JOIN performance, and concurrent reads.
 
+> **Phase 1–3 establish the baseline — no connection pooling, no query optimisation, no engine tuning. Every paradigm runs with default configuration out of the box. The goal is to understand architectural differences before any optimisation is applied.
+> Phase 4+ will introduce targeted optimisations (e.g. Polars vs Pandas, connection pooling, index strategies) and measure the delta against these baselines.**
+
 ---
 
 ## Dataset
