@@ -6,8 +6,18 @@ __pycache__/
 .pytest_cache/
 
 # Data files (too large for git)
-data/
+
+# Ignore large/untracked data
+data/raw/
+data/duckdb/
+data/parquet/
+data/star_schema/
 kaggle-dataset/
+data/postgres/
+data/mongodb/
+
+# Allow sample data
+!data/sample/
 
 # Results JSON (raw data, keep only summaries)
 results/benchmark_results.json

@@ -233,11 +233,24 @@ pip install -r requirements.txt
 # 2. Start Postgres
 docker compose up -d
 
-# 3. Download Kaggle dataset
-# https://www.kaggle.com/datasets/jacksoncrow/stock-market-dataset
-# Place CSV files in:
-#   kaggle-dataset/stocks/   (5,884 files)
-#   kaggle-dataset/etfs/     (2,165 files)
+
+### Getting the Data
+
+**Option 1 — Kaggle (original source)**
+Download from: https://www.kaggle.com/datasets/jacksoncrow/stock-market-dataset
+Place CSV files in:
+	kaggle-dataset/stocks/  (5,884 files)
+	kaggle-dataset/etfs/    (2,165 files)
+Then run: py -m loaders.kaggle_loader
+
+**Option 2 — Google Drive mirror (zip)**
+https://drive.google.com/drive/folders/1bYgvAFPx6osSJbbpEhWhNfYQaG-sPgtx?usp=sharing
+Download the zip, extract to kaggle-dataset/
+Then run: py -m loaders.kaggle_loader
+
+**Option 3 — Sample data (10K rows, no download needed)**
+data/sample/all_stocks_sample.csv is included in this repo.
+Usable immediately for testing without the full dataset.
 
 # 4. Build combined dataset (28M rows)
 py -m loaders.kaggle_loader
