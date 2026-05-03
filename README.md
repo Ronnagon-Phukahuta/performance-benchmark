@@ -1,6 +1,6 @@
 ﻿# Performance Benchmark — Python Data Storage
 
-> Benchmarking DuckDB, Parquet, PostgreSQL, SQL Server, and MongoDB on 28,151,758 rows of real financial data across 8,049 stock and ETF tickers spanning 40+ years. Covers bulk load, star schema, OLTP indexed queries, JOIN performance, and concurrent reads.
+> Benchmarking DuckDB, Parquet, PostgreSQL, SQL Server, MongoDB, and Redis on 28,151,758 rows of real financial data across 8,049 stock and ETF tickers spanning 40+ years. Covers bulk load, star schema, OLTP indexed queries, JOIN performance, concurrent reads, sorted sets, and cache simulation.
 
 > **Phase 1–3 establish the baseline — no connection pooling, no query optimisation, no engine tuning. Every paradigm runs with default configuration out of the box. The goal is to understand architectural differences before any optimisation is applied.
 > Phase 4+ will introduce targeted optimisations (e.g. Polars vs Pandas, connection pooling, index strategies) and measure the delta against these baselines.**
@@ -52,15 +52,15 @@
 ## Big O Complexity
 
 ### Complexity Growth Rates
-![Big O Classic](results/complexity_classic.png)
+![Big O Classic](results/images/complexity_classic.png)
 
 ### Log-Log Scale
 > All curves appear linear — this is why log-log can be misleading
-![Log-Log Scale](results/complexity_loglog.png)
+![Log-Log Scale](results/images/complexity_loglog.png)
 
 ### Linear Scale
 > True shape — O(n²) is off the chart, O(1) is flat, O(n) is diagonal
-![Linear Scale](results/complexity_linear.png)
+![Linear Scale](results/images/complexity_linear.png)
 
 | Method | Technology | Write | Read | Query | Write note |
 |---|---|---|---|---|---|
@@ -169,8 +169,9 @@
 
 | File | Focus |
 |---|---|
-| [results/bulk_load_benchmark.md](results/bulk_load_benchmark.md) | Bulk load — Write / Read / Analytical query across 5 paradigms |
-| [results/star_schema_benchmark.md](results/star_schema_benchmark.md) | Star Schema — JOIN / OLTP indexed / no-index / Concurrent reads |
+| [results/base/bulk_load_benchmark.md](results/base/bulk_load_benchmark.md) | Bulk load — Write / Read / Analytical query across 5 paradigms |
+| [results/base/star_schema_benchmark.md](results/base/star_schema_benchmark.md) | Star Schema — JOIN / OLTP indexed / no-index / Concurrent reads |
+| [results/redis_benchmark.md](results/redis_benchmark.md) | Redis — Key-Value / Sorted Set / Cache simulation / Concurrent reads |
 
 ---
 
@@ -270,6 +271,12 @@ py -m loaders.sqlserver.star_schema
 py -m loaders.mongodb.star_schema_embedded
 py -m loaders.mongodb.star_schema_lookup
 
+# Phase 4 — Redis benchmarks
+# Start Redis (requires Docker)
+docker compose up -d redis
+
+py -m loaders.redis.star_schema
+
 # 6. View results table
 py -m benchmark.run_all
 
@@ -298,14 +305,17 @@ performance-benchmark/
 │   ├── postgres/           # 3 variants: row_by_row, batch, bulk_copy
 │   ├── sqlserver/          # 3 variants: bulk_insert, bulk_columnstore, row_by_row
 │   ├── mongodb/            # 4 variants: bulk_insert, row_by_row, star_schema_embedded, star_schema_lookup
+│   ├── redis/              # star_schema: write, OLTP, sorted set, cache simulation, concurrent
 │   └── kaggle_loader.py    # builds all_stocks.csv from 8,049 CSV files
 ├── data_prep/
 │   ├── generate_star_schema.py   # builds dim_symbols.csv + fact_prices.csv
 │   └── generate_sample.py        # builds fact_prices_sample.csv (100K rows)
 ├── results/
 │   ├── benchmark_results.json
-│   ├── bulk_load_benchmark.md
-│   ├── star_schema_benchmark.md
+│   ├── redis_benchmark.md
+│   ├── base/
+│   │   ├── bulk_load_benchmark.md
+│   │   └── star_schema_benchmark.md
 │   └── README.md
 ├── data/
 │   ├── raw/                # all_stocks.csv (2.46 GB)
