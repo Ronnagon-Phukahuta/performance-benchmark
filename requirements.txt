@@ -9,3 +9,5 @@ sqlalchemy==2.0.40
 matplotlib==3.10.1
 pymssql==2.3.13
 pymongo
+# Add redis package for Redis support
+redis>=5.0.0
