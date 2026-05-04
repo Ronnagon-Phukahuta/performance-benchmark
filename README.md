@@ -40,11 +40,11 @@
 | Polars | 1.20.0 |
 | DuckDB | 1.2.2 |
 | Pandas | 2.2.3 |
-| Redis | 7-alpine |
-| Redpanda | latest |
-| Neo4j | 5 |
-| kafka-python | 2.x |
-| neo4j (Python driver) | 5.x |
+| Redis | 7.4.8 |
+| Redpanda | v26.1.6 |
+| Neo4j | 5.26.25 |
+| kafka-python | 2.3.1 |
+| neo4j (Python driver) | 6.1.0 |
 
 ---
 
