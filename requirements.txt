@@ -13,3 +13,6 @@ pymongo
 redis>=5.0.0
 # Add kafka-python for Redpanda/Kafka support
 kafka-python>=2.0.0
+
+# Add neo4j for Neo4j support
+neo4j>=5.0.0

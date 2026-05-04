@@ -1,9 +1,14 @@
 ﻿# Performance Benchmark — Python Data Storage
 
-> Benchmarking DuckDB, Parquet, PostgreSQL, SQL Server, MongoDB, Redis, and Redpanda on 28,151,758 rows of real financial data across 8,049 stock and ETF tickers spanning 40+ years. Covers bulk load, star schema, OLTP indexed queries, JOIN performance, concurrent reads, sorted sets, cache simulation, and real-time streaming.
+> Benchmarking DuckDB, Parquet, PostgreSQL, SQL Server, MongoDB, Redis, Redpanda, and Neo4j on 28,151,758 rows of real financial data across 8,049 stock and ETF tickers spanning 40+ years. Covers bulk load, star schema, OLTP indexed queries, JOIN performance, concurrent reads, sorted sets, cache simulation, real-time streaming, and graph traversal.
 
-> **Phase 1–3 establish the baseline — no connection pooling, no query optimisation, no engine tuning. Every paradigm runs with default configuration out of the box. The goal is to understand architectural differences before any optimisation is applied.
-> Phase 4+ will introduce targeted optimisations (e.g. Polars vs Pandas, connection pooling, index strategies) and measure the delta against these baselines.**
+> **Phase 1–6 establish the baseline — no connection pooling, no query optimisation, no engine tuning. Every paradigm runs with default configuration out of the box.**
+> - Phase 1–3: DuckDB, Parquet, Postgres, SQL Server, MongoDB — bulk load, star schema, OLTP
+> - Phase 4: Redis — key-value, sorted set, cache simulation
+> - Phase 5: Redpanda — streaming producer/consumer
+> - Phase 6: Neo4j — graph traversal, OLTP, concurrent reads
+>
+> **Phase 7+ will introduce targeted optimisations and cross-paradigm pipelines.**
 
 ---
 
@@ -35,6 +40,11 @@
 | Polars | 1.20.0 |
 | DuckDB | 1.2.2 |
 | Pandas | 2.2.3 |
+| Redis | 7-alpine |
+| Redpanda | latest |
+| Neo4j | 5 |
+| kafka-python | 2.x |
+| neo4j (Python driver) | 5.x |
 
 ---
 
@@ -163,6 +173,38 @@
 
 > \* extrapolated from 100K subset
 
+### Redis Key Numbers
+
+| Metric | Value |
+|---|---|
+| Sorted set ZADD+ZRANGE top 10 | 0.01s |
+| Cache hit latency | 0.308ms |
+| Cache miss latency | 0.336ms (simulated) |
+| KEYS scan (28M keys, 10 tickers) | 62s → ~835 min extrapolated ❌ |
+| RAM footprint | 1,835MB permanent (all data in memory) |
+
+### Redpanda Key Numbers
+
+| Metric | Value |
+|---|---|
+| Producer max throughput | 21,787 rows/sec / 4.1 MB/sec |
+| Consumer throughput (→ DuckDB) | 1,933 rows/sec |
+| Consumer/Producer ratio | 8.9% |
+| End-to-end latency (throttled) | 168.6ms |
+| Throttled producer actual rate | 644 rows/sec (target 1,000) |
+| Concurrent reads (single partition) | Linear scale — 5 threads = 5× slower |
+
+### Neo4j Key Numbers
+
+| Metric | Value |
+|---|---|
+| Graph traversal (1-hop, 910 tickers) | 0.07s |
+| OLTP query (ticker_id=1, date range) | 0.07s |
+| JOIN query (GROUP BY sector) | 0.14s |
+| Concurrent 20 threads | 0.23s (best of all paradigms) |
+| write_prices 28M nodes | DNF — RAM spike to 31GB ❌ |
+| RAM footprint at idle | 153MB (lowest of all server paradigms) |
+
 ---
 
 ## Benchmark Summaries
@@ -173,6 +215,7 @@
 | [results/base/star_schema_benchmark.md](results/base/star_schema_benchmark.md) | Star Schema — JOIN / OLTP indexed / no-index / Concurrent reads |
 | [results/base/redis_benchmark.md](results/base/redis_benchmark.md) | Redis — Key-Value / Sorted Set / Cache simulation / Concurrent reads |
 | [results/base/redpanda_benchmark.md](results/base/redpanda_benchmark.md) | Redpanda — Streaming anti-pattern vs true use case, producer/consumer throughput |
+| [results/base/neo4j_benchmark.md](results/base/neo4j_benchmark.md) | Neo4j — Graph traversal, JOIN, OLTP, concurrent reads |
 
 ---
 
@@ -233,9 +276,9 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 2. Start Postgres
+# 2. Start all services
 docker compose up -d
-
+```
 
 ### Getting the Data
 
@@ -244,17 +287,18 @@ Download from: https://www.kaggle.com/datasets/jacksoncrow/stock-market-dataset
 Place CSV files in:
 	kaggle-dataset/stocks/  (5,884 files)
 	kaggle-dataset/etfs/    (2,165 files)
-Then run: py -m loaders.kaggle_loader
+Then run: `py -m loaders.kaggle_loader`
 
 **Option 2 — Google Drive mirror (zip)**
 https://drive.google.com/drive/folders/1bYgvAFPx6osSJbbpEhWhNfYQaG-sPgtx?usp=sharing
 Download the zip, extract to kaggle-dataset/
-Then run: py -m loaders.kaggle_loader
+Then run: `py -m loaders.kaggle_loader`
 
 **Option 3 — Sample data (10K rows, no download needed)**
-data/sample/all_stocks_sample.csv is included in this repo.
+`data/sample/all_stocks_sample.csv` is included in this repo.
 Usable immediately for testing without the full dataset.
 
+```bash
 # 4. Build combined dataset (28M rows)
 py -m loaders.kaggle_loader
 
@@ -286,6 +330,12 @@ docker compose up -d redpanda
 py -m loaders.redpanda.star_schema   # anti-pattern benchmark
 py -m loaders.redpanda.streaming     # true use case benchmark
 
+# Phase 6 — Neo4j benchmarks
+# Start Neo4j (requires Docker)
+docker compose up -d neo4j
+
+py -m loaders.neo4j.star_schema
+
 # 6. View results table
 py -m benchmark.run_all
 
@@ -315,17 +365,21 @@ performance-benchmark/
 │   ├── sqlserver/          # 3 variants: bulk_insert, bulk_columnstore, row_by_row
 │   ├── mongodb/            # 4 variants: bulk_insert, row_by_row, star_schema_embedded, star_schema_lookup
 │   ├── redis/              # star_schema: write, OLTP, sorted set, cache simulation, concurrent
+│   ├── redpanda/           # star_schema: batch anti-pattern; streaming: true use case
+│   ├── neo4j/              # star_schema: write_graph, write_prices, JOIN, OLTP, traversal, concurrent
 │   └── kaggle_loader.py    # builds all_stocks.csv from 8,049 CSV files
 ├── data_prep/
 │   ├── generate_star_schema.py   # builds dim_symbols.csv + fact_prices.csv
 │   └── generate_sample.py        # builds fact_prices_sample.csv (100K rows)
 ├── results/
 │   ├── benchmark_results.json
-│   ├── redis_benchmark.md
-│   ├── base/
-│   │   ├── bulk_load_benchmark.md
-│   │   └── star_schema_benchmark.md
-│   └── README.md
+│   ├── README.md
+│   └── base/
+│       ├── bulk_load_benchmark.md
+│       ├── star_schema_benchmark.md
+│       ├── redis_benchmark.md
+│       ├── redpanda_benchmark.md
+│       └── neo4j_benchmark.md
 ├── data/
 │   ├── raw/                # all_stocks.csv (2.46 GB)
 │   ├── duckdb/             # DuckDB database files

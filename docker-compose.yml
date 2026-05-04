@@ -78,3 +78,21 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+  neo4j:
+    image: neo4j:5
+    container_name: benchmark_neo4j
+    environment:
+      NEO4J_AUTH: neo4j/Benchmark123!
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_memory_heap_initial__size: 512m
+      NEO4J_dbms_memory_heap_max__size: 2G
+      NEO4J_dbms_memory_pagecache_size: 1G
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    healthcheck:
+      test: ["CMD", "neo4j", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
