@@ -99,11 +99,14 @@ Each new dataset will have its own cross-paradigm optimization phase.
 > Re-run benchmarks when major versions release to track performance evolution
 
 - [ ] DuckDB — current 1.2.2, re-run on 2.x release
-- [ ] Polars — current 1.20.0, re-run on 2.x release  
+- [ ] Polars — current 1.20.0, re-run on 2.x release
 - [ ] Pandas — current 2.2.3, re-run on 3.x release
-- [ ] MongoDB — current 7, re-run on 8.x release
-- [ ] Neo4j — current 5, re-run on 6.x release
-- [ ] Redpanda — re-run on major release
+- [ ] MongoDB — current 7.0.32, re-run on 8.x release
+- [ ] Neo4j — current 5.26.25, re-run on 6.x release
+- [ ] Redis — current 7.4.8, re-run on 8.x release
+- [ ] Redpanda — current v26.1.6, re-run on major release
+- [ ] kafka-python — current 2.3.1, re-run on 3.x release
+- [ ] neo4j (Python driver) — current 6.1.0, re-run on 7.x release
 
 Each version bump gets its own results file:
   results/base/bulk_load_benchmark_duckdb_v2.md

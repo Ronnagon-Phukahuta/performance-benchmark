@@ -41,6 +41,7 @@
 | DuckDB | 1.2.2 |
 | Pandas | 2.2.3 |
 | Redis | 7.4.8 |
+| MongoDB | 7.0.32 |
 | Redpanda | v26.1.6 |
 | Neo4j | 5.26.25 |
 | kafka-python | 2.3.1 |
