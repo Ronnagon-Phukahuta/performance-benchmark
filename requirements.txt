@@ -11,3 +11,5 @@ pymssql==2.3.13
 pymongo
 # Add redis package for Redis support
 redis>=5.0.0
+# Add kafka-python for Redpanda/Kafka support
+kafka-python>=2.0.0
