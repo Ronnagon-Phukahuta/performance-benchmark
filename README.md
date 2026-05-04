@@ -1,6 +1,6 @@
 ﻿# Performance Benchmark — Python Data Storage
 
-> Benchmarking DuckDB, Parquet, PostgreSQL, SQL Server, MongoDB, and Redis on 28,151,758 rows of real financial data across 8,049 stock and ETF tickers spanning 40+ years. Covers bulk load, star schema, OLTP indexed queries, JOIN performance, concurrent reads, sorted sets, and cache simulation.
+> Benchmarking DuckDB, Parquet, PostgreSQL, SQL Server, MongoDB, Redis, and Redpanda on 28,151,758 rows of real financial data across 8,049 stock and ETF tickers spanning 40+ years. Covers bulk load, star schema, OLTP indexed queries, JOIN performance, concurrent reads, sorted sets, cache simulation, and real-time streaming.
 
 > **Phase 1–3 establish the baseline — no connection pooling, no query optimisation, no engine tuning. Every paradigm runs with default configuration out of the box. The goal is to understand architectural differences before any optimisation is applied.
 > Phase 4+ will introduce targeted optimisations (e.g. Polars vs Pandas, connection pooling, index strategies) and measure the delta against these baselines.**
@@ -171,7 +171,8 @@
 |---|---|
 | [results/base/bulk_load_benchmark.md](results/base/bulk_load_benchmark.md) | Bulk load — Write / Read / Analytical query across 5 paradigms |
 | [results/base/star_schema_benchmark.md](results/base/star_schema_benchmark.md) | Star Schema — JOIN / OLTP indexed / no-index / Concurrent reads |
-| [results/redis_benchmark.md](results/redis_benchmark.md) | Redis — Key-Value / Sorted Set / Cache simulation / Concurrent reads |
+| [results/base/redis_benchmark.md](results/base/redis_benchmark.md) | Redis — Key-Value / Sorted Set / Cache simulation / Concurrent reads |
+| [results/base/redpanda_benchmark.md](results/base/redpanda_benchmark.md) | Redpanda — Streaming anti-pattern vs true use case, producer/consumer throughput |
 
 ---
 
@@ -220,6 +221,7 @@ See [`examples/`](examples/README.md) for full details.
 | `examples/oom/mongodb_full_scan_oom.py` | `find({})` full collection scan | MemoryError mid-cursor |
 | `examples/performance/parquet_partitioned_naive.py` | O(n×p) per-ticker loop | ~2h DNF at 8,049 tickers |
 | `examples/performance/duckdb_row_by_row_vs_batch.py` | Python loop overhead | batch ≈ row_by_row (~6h both) |
+| `examples/performance/redpanda_batch_as_database.py` | Using Kafka as queryable DB | 207s for 63 rows — 10,350× slower than DuckDB index |
 
 ---
 
@@ -276,6 +278,13 @@ py -m loaders.mongodb.star_schema_lookup
 docker compose up -d redis
 
 py -m loaders.redis.star_schema
+
+# Phase 5 — Redpanda benchmarks
+# Start Redpanda (requires Docker)
+docker compose up -d redpanda
+
+py -m loaders.redpanda.star_schema   # anti-pattern benchmark
+py -m loaders.redpanda.streaming     # true use case benchmark
 
 # 6. View results table
 py -m benchmark.run_all

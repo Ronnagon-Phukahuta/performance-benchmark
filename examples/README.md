@@ -16,6 +16,7 @@ Every example is intentionally non-runnable (raises RuntimeError) to prevent acc
 |---|---|---|---|
 | parquet_partitioned_naive.py | O(n×p) per-ticker loop | 8,049 tickers | ~2h DNF |
 | duckdb_row_by_row_vs_batch.py | Python loop overhead | 28M rows | batch ≈ row_by_row (~6h both) |
+| redpanda_batch_as_database.py | Using Kafka as queryable DB | 28M messages | 207s for 63 rows — 10,350x slower than DuckDB index |
 
 ## Key Lesson
 
