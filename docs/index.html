@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Python Data Storage Benchmark | 28M rows · 8 backends</title>
-  <meta name="description" content="Performance benchmark comparing 8 storage backends (PostgreSQL, DuckDB, Parquet, Redis, MongoDB, SQL Server, Redpanda, Neo4j) across 28 million rows of financial OHLCV data.">
+  <meta name="description" content="Performance benchmark comparing 8 storage backends across 28 million rows of financial OHLCV data, with 7 phases of optimization.">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -19,13 +19,12 @@
       --accent:    #58a6ff;
       --green:     #3fb950;
       --red:       #f85149;
-      --yellow:    #d29922;
+      --orange:    #f0883e;
       --r: 8px;
       --r-lg: 12px;
     }
 
     html { font-size: 16px; scroll-behavior: smooth; }
-
     body {
       background: var(--bg);
       color: var(--text);
@@ -33,10 +32,9 @@
       line-height: 1.6;
     }
 
-    /* ── NAV ── */
     nav {
       position: sticky; top: 0; z-index: 100;
-      background: rgba(13,17,23,.88);
+      background: rgba(13,17,23,.9);
       backdrop-filter: blur(14px);
       border-bottom: 1px solid var(--border);
       height: 56px;
@@ -51,114 +49,91 @@
     .nav-brand em { color: var(--accent); font-style: normal; }
     .nav-gh {
       display: flex; align-items: center; gap: .4rem;
-      color: var(--text-2); text-decoration: none;
-      font-size: .8rem;
+      color: var(--text-2); text-decoration: none; font-size: .8rem;
       padding: .35rem .8rem;
       border: 1px solid var(--border); border-radius: var(--r);
       transition: color .15s, border-color .15s;
     }
     .nav-gh:hover { color: var(--text); border-color: var(--text-2); }
 
-    /* ── LAYOUT ── */
-    main {
-      max-width: 1160px;
-      margin: 0 auto;
-      padding: 0 1.25rem 5rem;
-    }
+    main { max-width: 1160px; margin: 0 auto; padding: 0 1.25rem 5rem; }
 
-    /* ── HERO ── */
-    .hero {
-      text-align: center;
-      padding: 5rem 1rem 3.5rem;
-    }
+    .hero { text-align: center; padding: 5rem 1rem 3.5rem; }
     .hero h1 {
       font-size: clamp(1.8rem, 4vw, 2.9rem);
-      font-weight: 700;
-      letter-spacing: -.025em;
-      line-height: 1.15;
+      font-weight: 700; letter-spacing: -.025em; line-height: 1.15;
       margin-bottom: .65rem;
     }
     .hero h1 .grad {
       background: linear-gradient(120deg, #58a6ff 0%, #3fb950 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       background-clip: text;
     }
-    .hero .sub {
-      font-size: 1rem;
-      color: var(--text-2);
-      margin-bottom: 2.5rem;
-    }
-    .stats-row {
-      display: flex; flex-wrap: wrap;
-      justify-content: center; gap: 1.25rem;
-    }
+    .hero .sub { font-size: 1rem; color: var(--text-2); margin-bottom: 2.5rem; }
+    .stats-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 1.25rem; }
     .stat {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--r-lg);
-      padding: 1.1rem 2.1rem;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r-lg); padding: 1.1rem 2.1rem;
       min-width: 150px; text-align: center;
     }
-    .stat .val {
-      font-size: 2.1rem; font-weight: 700;
-      color: var(--accent); line-height: 1;
-      margin-bottom: .2rem;
-    }
-    .stat .lbl {
-      font-size: .72rem; text-transform: uppercase;
-      letter-spacing: .06em; color: var(--text-2);
+    .stat .val { font-size: 2.1rem; font-weight: 700; color: var(--accent); line-height: 1; margin-bottom: .2rem; }
+    .stat .lbl { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); }
+
+    .phase-divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent 0%, var(--border) 30%, var(--border) 70%, transparent 100%);
+      margin: 3.5rem 0;
     }
 
-    /* ── SECTIONS ── */
-    .sec { margin: 3rem 0; }
+    .phase-tag {
+      display: inline-block;
+      padding: .18rem .65rem;
+      border-radius: 99px;
+      font-size: .67rem; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
+      margin-bottom: .45rem;
+    }
+    .tag-base  { background: rgba(248,81,73,.12);  color: #f85149; border: 1px solid rgba(248,81,73,.3); }
+    .tag-df    { background: rgba(88,166,255,.12); color: #58a6ff; border: 1px solid rgba(88,166,255,.3); }
+    .tag-proto { background: rgba(63,185,80,.12);  color: #3fb950; border: 1px solid rgba(63,185,80,.3); }
+
+    .sec { margin: 2.5rem 0; }
     .sec-hdr { margin-bottom: 1.1rem; }
     .sec-hdr h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: .2rem; }
     .sec-hdr p  { font-size: .82rem; color: var(--text-2); }
 
+    .phase-sec-hdr { margin-bottom: 2rem; }
+    .phase-sec-hdr h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: .3rem; }
+    .phase-sec-hdr p  { font-size: .9rem; color: var(--text-2); max-width: 700px; }
+
     .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--r-lg);
-      padding: 1.5rem;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r-lg); padding: 1.5rem;
     }
 
-    /* ── TOGGLE ── */
     .toggle-grp {
       display: flex; gap: 3px;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: var(--r);
-      padding: 3px;
-      width: fit-content;
-      margin-bottom: 1.2rem;
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: var(--r); padding: 3px;
+      width: fit-content; margin-bottom: 1.2rem;
     }
     .tog {
-      padding: .3rem .9rem;
-      border: none; border-radius: 5px;
+      padding: .3rem .9rem; border: none; border-radius: 5px;
       background: transparent; color: var(--text-2);
       font-size: .78rem; font-weight: 500;
       cursor: pointer; transition: background .18s, color .18s;
     }
-    .tog.active {
-      background: var(--surface); color: var(--text);
-      box-shadow: 0 1px 3px rgba(0,0,0,.35);
-    }
+    .tog.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.35); }
 
-    /* ── CHARTS ── */
-    .chart-wrap      { position: relative; height: 260px; }
-    .chart-wrap-tall { position: relative; height: 360px; }
+    .ch-sm   { position: relative; height: 220px; }
+    .ch-md   { position: relative; height: 280px; }
+    .ch-lg   { position: relative; height: 340px; }
+    .ch-xl   { position: relative; height: 400px; }
 
-    .charts-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1.5rem;
-      margin: 3rem 0;
-    }
-    @media (max-width: 680px) { .charts-2 { grid-template-columns: 1fr; } }
-    .charts-2 .sec { margin: 0; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin: 2rem 0; }
+    @media (max-width: 680px) { .grid-2 { grid-template-columns: 1fr; } }
+    .grid-2 .sec { margin: 0; }
 
-    /* ── TABLE ── */
     .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     table { width: 100%; border-collapse: collapse; font-size: .84rem; }
     thead { border-bottom: 2px solid var(--border); }
@@ -168,101 +143,62 @@
       text-transform: uppercase; letter-spacing: .06em;
       color: var(--text-2); white-space: nowrap;
     }
-    td {
-      padding: .7rem 1rem;
-      border-bottom: 1px solid var(--border);
-      color: var(--text); white-space: nowrap;
-    }
+    td { padding: .7rem 1rem; border-bottom: 1px solid var(--border); color: var(--text); white-space: nowrap; }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: var(--surface-2); transition: background .1s; }
     .best { color: var(--green) !important; font-weight: 700; }
-    .badge {
-      display: inline-block;
-      padding: .08rem .5rem;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 99px;
-      font-size: .7rem; color: var(--text-2);
+    .badge-sm {
+      display: inline-block; padding: .08rem .5rem;
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 99px; font-size: .7rem; color: var(--text-2);
     }
     td.muted { color: var(--text-2); }
 
-    /* ── INSIGHTS ── */
-    .insights-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
-    }
+    .chart-note { font-size: .75rem; color: var(--text-2); margin-top: .6rem; font-style: italic; }
+
+    .insights-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     @media (max-width: 680px) { .insights-grid { grid-template-columns: 1fr; } }
 
     details.ic {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--r-lg);
-      overflow: hidden;
-      transition: border-color .2s;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r-lg); overflow: hidden; transition: border-color .2s;
     }
     details.ic[open] { border-color: var(--accent); }
-
     details.ic summary {
-      padding: 1rem 1.2rem;
-      cursor: pointer; list-style: none;
-      display: flex; align-items: flex-start; gap: .75rem;
-      user-select: none;
+      padding: 1rem 1.2rem; cursor: pointer; list-style: none;
+      display: flex; align-items: flex-start; gap: .75rem; user-select: none;
     }
     details.ic summary::-webkit-details-marker { display: none; }
-
     .ic-icon {
-      flex-shrink: 0;
-      width: 34px; height: 34px;
-      border-radius: 8px;
+      flex-shrink: 0; width: 34px; height: 34px; border-radius: 8px;
       background: var(--surface-2);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1.05rem;
+      display: flex; align-items: center; justify-content: center; font-size: 1.05rem;
     }
-    .ic-title { font-weight: 600; font-size: .875rem; margin-bottom: .1rem; }
+    .ic-title  { font-weight: 600; font-size: .875rem; margin-bottom: .1rem; }
     .ic-teaser { font-size: .77rem; color: var(--text-2); line-height: 1.4; }
-    .ic-chev {
-      margin-left: auto; flex-shrink: 0;
-      color: var(--text-2); transition: transform .2s;
-      margin-top: 8px;
-    }
+    .ic-chev { margin-left: auto; flex-shrink: 0; color: var(--text-2); transition: transform .2s; margin-top: 8px; }
     details.ic[open] .ic-chev { transform: rotate(180deg); }
-
     .ic-body {
-      padding: .75rem 1.2rem 1.2rem;
-      font-size: .83rem; color: var(--text-2);
-      line-height: 1.75;
-      border-top: 1px solid var(--border);
+      padding: .75rem 1.2rem 1.2rem; font-size: .83rem; color: var(--text-2);
+      line-height: 1.75; border-top: 1px solid var(--border);
     }
     .ic-body p { margin-top: .6rem; }
     .ic-body p:first-child { margin-top: 0; }
     .ic-stat {
-      display: block;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: .5rem .8rem;
-      margin: .6rem 0;
-      font-size: .78rem;
-      font-family: 'SF Mono', Consolas, 'Cascadia Code', monospace;
+      display: block; background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 6px; padding: .5rem .8rem; margin: .6rem 0;
+      font-size: .78rem; font-family: 'SF Mono', Consolas, 'Cascadia Code', monospace;
     }
     .ic-stat strong { color: var(--text); }
     code {
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: .05rem .35rem;
-      font-size: .82em;
-      font-family: 'SF Mono', Consolas, 'Cascadia Code', monospace;
-      color: var(--accent);
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+      padding: .05rem .35rem; font-size: .82em;
+      font-family: 'SF Mono', Consolas, 'Cascadia Code', monospace; color: var(--accent);
     }
 
-    /* ── FOOTER ── */
     footer {
-      border-top: 1px solid var(--border);
-      padding: 2rem 1.25rem;
-      text-align: center;
-      color: var(--text-2); font-size: .78rem;
+      border-top: 1px solid var(--border); padding: 2rem 1.25rem;
+      text-align: center; color: var(--text-2); font-size: .78rem;
     }
     footer a { color: var(--accent); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
@@ -270,7 +206,6 @@
 </head>
 <body>
 
-<!-- NAV -->
 <nav>
   <a href="#" class="nav-brand">
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -280,15 +215,7 @@
   </a>
   <a href="https://github.com" class="nav-gh" target="_blank" rel="noopener noreferrer">
     <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
-               0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
-               -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
-               .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
-               -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27
-               .68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
-               .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
-               0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8
-               c0-4.42-3.58-8-8-8z"/>
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
     </svg>
     View on GitHub
   </a>
@@ -296,439 +223,313 @@
 
 <main>
 
-  <!-- HERO -->
   <section class="hero">
     <h1>Python <span class="grad">Data Storage</span> Benchmark</h1>
-    <p class="sub">28M rows &nbsp;·&nbsp; 8 storage backends &nbsp;·&nbsp; 7 optimisation phases &nbsp;·&nbsp; real financial OHLCV data</p>
+    <p class="sub">28M rows &nbsp;&middot;&nbsp; 8 storage backends &nbsp;&middot;&nbsp; 7 optimisation phases &nbsp;&middot;&nbsp; real financial OHLCV data</p>
     <div class="stats-row">
-      <div class="stat">
-        <div class="val">2.60×</div>
-        <div class="lbl">Read improvement</div>
-      </div>
-      <div class="stat">
-        <div class="val">1.98×</div>
-        <div class="lbl">Write improvement</div>
-      </div>
-      <div class="stat">
-        <div class="val">8</div>
-        <div class="lbl">Storage paradigms</div>
-      </div>
+      <div class="stat"><div class="val">2.60&times;</div><div class="lbl">Read improvement</div></div>
+      <div class="stat"><div class="val">1.98&times;</div><div class="lbl">Write improvement</div></div>
+      <div class="stat"><div class="val">8</div><div class="lbl">Storage paradigms</div></div>
     </div>
   </section>
 
-  <!-- READ CHART -->
+  <div class="phase-divider"></div>
+
+  <div class="phase-sec-hdr">
+    <span class="phase-tag tag-base">Phase 1&#8211;6</span>
+    <h2>Baseline: No Optimization</h2>
+    <p>Raw performance of 8 storage paradigms on the same 28M-row dataset. No tuning, no pooling, no protocol optimization.</p>
+  </div>
+
   <section class="sec">
-    <div class="sec-hdr">
-      <h2>Read Performance Progression</h2>
-      <p>Full-table scan returning all 28,151,758 rows to Python</p>
-    </div>
-    <div class="card">
-      <div class="toggle-grp">
-        <button class="tog active" id="btn-time" onclick="setReadMode('time')">Time (seconds)</button>
-        <button class="tog"        id="btn-ram"  onclick="setReadMode('ram')">RAM (GB)</button>
-      </div>
-      <div class="chart-wrap-tall">
-        <canvas id="readChart"></canvas>
-      </div>
-    </div>
+    <div class="sec-hdr"><h2>Write Performance &mdash; All Paradigms</h2><p>Bulk insert of 28,151,758 rows from CSV</p></div>
+    <div class="card"><div class="ch-lg"><canvas id="blWriteChart"></canvas></div></div>
   </section>
 
-  <!-- WRITE + QUERY SIDE BY SIDE -->
-  <div class="charts-2">
+  <div class="grid-2">
     <section class="sec">
-      <div class="sec-hdr">
-        <h2>Write Performance</h2>
-        <p>Bulk insert — 28M rows ingested from CSV</p>
-      </div>
+      <div class="sec-hdr"><h2>Read Performance</h2><p>Full table scan to Python DataFrame</p></div>
       <div class="card">
-        <div class="chart-wrap">
-          <canvas id="writeChart"></canvas>
-        </div>
+        <div class="ch-lg"><canvas id="blReadChart"></canvas></div>
+        <p class="chart-note">&#9733; MongoDB read measured on single ticker (AAPL) &mdash; full-table scan caused OOM on 32 GB RAM.</p>
       </div>
     </section>
     <section class="sec">
-      <div class="sec-hdr">
-        <h2>Query Performance</h2>
-        <p>GROUP BY ticker — 8,049 aggregated result rows</p>
-      </div>
+      <div class="sec-hdr"><h2>Query Performance</h2><p>GROUP BY ticker &rarr; AVG / MAX / MIN close</p></div>
+      <div class="card"><div class="ch-lg"><canvas id="blQueryChart"></canvas></div></div>
+    </section>
+  </div>
+
+  <div class="phase-divider"></div>
+
+  <div class="phase-sec-hdr">
+    <span class="phase-tag tag-df">Phase 7A&#8211;7C</span>
+    <h2>DataFrame Engine: Polars vs Pandas</h2>
+    <p>Isolates the impact of the DataFrame library from storage I/O. Same data, same operations &mdash; Pandas baseline vs Polars across 8 operations and 4 storage backends.</p>
+  </div>
+
+  <div class="grid-2">
+    <section class="sec">
+      <div class="sec-hdr"><h2>Pure DataFrame Operations</h2><p>28M rows, no storage I/O</p></div>
+      <div class="card"><div class="ch-xl"><canvas id="dfOpsChart"></canvas></div></div>
+    </section>
+    <section class="sec">
+      <div class="sec-hdr"><h2>With Storage Backends</h2><p>Pandas vs Polars on real I/O workloads</p></div>
       <div class="card">
-        <div class="chart-wrap">
-          <canvas id="queryChart"></canvas>
-        </div>
+        <div class="ch-xl"><canvas id="dfBackChart"></canvas></div>
+        <p class="chart-note">Y-axis: logarithmic scale &mdash; backends span 1.4s to 263s.</p>
       </div>
     </section>
   </div>
 
-  <!-- STRATEGY TABLE -->
+  <div class="phase-divider"></div>
+
+  <div class="phase-sec-hdr">
+    <span class="phase-tag tag-proto">Phase 7D&#8211;7G</span>
+    <h2>Protocol Optimization: PostgreSQL</h2>
+    <p>Five successive protocol improvements starting at 159s read / 263s write. Each phase targets a different bottleneck: driver, COPY path, connection pooling, async concurrency, Arrow IPC.</p>
+  </div>
+
   <section class="sec">
-    <div class="sec-hdr">
-      <h2>Strategy Comparison</h2>
-      <p>Best value per column highlighted in green</p>
-    </div>
+    <div class="sec-hdr"><h2>Read Performance Progression</h2><p>Full-table scan &mdash; 28,151,758 rows returned to Python</p></div>
     <div class="card">
-      <div class="tbl-scroll">
-        <table id="stratTable"></table>
+      <div class="toggle-grp">
+        <button class="tog active" id="btn-time" onclick="setReadMode('time')">Time (seconds)</button>
+        <button class="tog" id="btn-ram" onclick="setReadMode('ram')">RAM (GB)</button>
       </div>
+      <div class="ch-lg"><canvas id="readChart"></canvas></div>
     </div>
   </section>
 
-  <!-- INSIGHTS -->
+  <div class="grid-2">
+    <section class="sec">
+      <div class="sec-hdr"><h2>Write Performance</h2><p>Bulk insert &mdash; 28M rows ingested from CSV</p></div>
+      <div class="card"><div class="ch-md"><canvas id="writeChart"></canvas></div></div>
+    </section>
+    <section class="sec">
+      <div class="sec-hdr"><h2>Query Performance</h2><p>GROUP BY ticker &mdash; 8,049 aggregated result rows</p></div>
+      <div class="card"><div class="ch-md"><canvas id="queryChart"></canvas></div></div>
+    </section>
+  </div>
+
+  <div class="phase-divider"></div>
+
   <section class="sec">
     <div class="sec-hdr">
-      <h2>Key Insights</h2>
-      <p>Click a card to expand</p>
+      <h2>Postgres Protocol Strategy Comparison</h2>
+      <p>Phase 7D&ndash;7G strategies &middot; best value per column highlighted in green</p>
     </div>
+    <div class="card"><div class="tbl-scroll"><table id="stratTable"></table></div></div>
+  </section>
+
+  <div class="phase-divider"></div>
+
+  <section class="sec">
+    <div class="sec-hdr"><h2>Key Insights</h2><p>Click a card to expand</p></div>
     <div class="insights-grid" id="insightsGrid"></div>
   </section>
 
 </main>
 
 <footer>
-  28,151,758 rows &nbsp;·&nbsp; Python 3.13 &nbsp;·&nbsp; Intel Core i5-12400F / 32 GB RAM &nbsp;·&nbsp;
+  28,151,758 rows &nbsp;&middot;&nbsp; Python 3.13 &nbsp;&middot;&nbsp; Intel Core i5-12400F / 32 GB RAM &nbsp;&middot;&nbsp;
   <a href="https://github.com" target="_blank" rel="noopener noreferrer">View source on GitHub</a>
 </footer>
 
 <script>
-// ═══════════════════════════════════════════════════════
-// DATA
-// ═══════════════════════════════════════════════════════
+const BL_WRITE = {
+  labels: ['Parquet partitioned','DuckDB bulk (Polars)','Parquet lazy (Polars)','Parquet single (Polars)','Parquet single (Pandas)','DuckDB bulk (Pandas)','MongoDB bulk_insert','Postgres COPY'],
+  time:   [0.23, 3.48, 6.21, 6.31, 11.54, 11.69, 208.83, 263.43],
+};
+const BL_READ = {
+  labels: ['MongoDB ★ (1 ticker)','Parquet lazy (Polars)','Parquet single (Polars)','Parquet single (Pandas)','DuckDB bulk (Pandas)','DuckDB bulk (Polars)','Postgres COPY'],
+  time:   [0.05, 0.39, 0.40, 3.11, 5.29, 6.06, 159.16],
+};
+const BL_QUERY = {
+  labels: ['DuckDB direct Parquet','DuckDB bulk (Pandas)','Parquet lazy (Polars)','Parquet single (Polars)','MongoDB GROUP BY','Postgres GROUP BY'],
+  time:   [0.13, 0.14, 0.98, 1.08, 23.57, 24.27],
+};
+const DF_OPS = {
+  labels: ['read_csv','filter','groupby','sort','window','string','typecast','concat'],
+  pandas: [14.64, 15.42, 15.51, 19.95, 38.05, 17.36, 19.11, 15.36],
+  polars: [1.46,  1.49,  2.40,  3.22,  5.15,  1.62,  1.98,  1.56],
+};
+const DF_BACK = {
+  labels: ['DuckDB write','Postgres write','Redpanda consumer','Neo4j write'],
+  pandas: [11.69, 263.43, 52,   5   ],
+  polars: [3.48,  134.48, 4.15, 1.40],
+};
 const READ = {
-  labels: [
-    'psycopg2 baseline',
-    'psycopg3 binary',
-    'psycopg3 + pgBouncer',
-    'COPY BINARY',
-    'COPY CSV → Polars',
-    'async 4-chunk ctid',
-    'ADBC streaming',
-  ],
-  phases: ['Phase 1', '7D', '7D', '7E', '7E', '7F', '7G'],
+  labels: ['psycopg2 baseline','psycopg3 binary','psycopg3 + pgBouncer','COPY BINARY','COPY CSV → Polars','async 4-chunk ctid','ADBC streaming'],
   time:   [159.16, 142, 109, 81.68, 67.23, 63.75, 61.20],
-  ram:    [19.1,   20.7, 21.9, 13.7,  4.3,  15.9,  6.7],
+  ram:    [19.1, 20.7, 21.9, 13.7, 4.3, 15.9, 6.7],
 };
-
 const WRITE = {
-  labels: ['psycopg2 COPY', 'psycopg3', 'async COPY', 'ADBC ingest'],
-  phases: ['Phase 1',       '7D',       '7F',          '7G'],
-  time:   [263.43,           272,        245.09,        133.26],
+  labels: ['psycopg2 COPY','psycopg3','async COPY','ADBC ingest'],
+  time:   [263.43, 272, 245.09, 133.26],
 };
-
 const QUERY = {
-  labels: ['Postgres native', 'COPY → DuckDB', 'async server-side', 'ADBC'],
-  phases: ['Phase 1',         '7E',             '7F',                '7G'],
-  time:   [24.27,              76.75,            18.31,               18.56],
+  labels: ['Postgres native','COPY → DuckDB','async server-side','ADBC'],
+  time:   [24.27, 76.75, 18.31, 18.56],
 };
-
 const TABLE_ROWS = [
-  { strategy: 'psycopg2 + Pandas',    phase: '1',  read: 159.2, write: 263.4, query: 24.3,  ram:  19.1, bestFor: 'Reference baseline' },
-  { strategy: 'psycopg3 + pgBouncer', phase: '7D', read: 109.0, write: 272.0, query: null,  ram:  21.9, bestFor: 'Connection pooling' },
-  { strategy: 'COPY BINARY',          phase: '7E', read:  81.7, write: 262.4, query: null,  ram:  13.7, bestFor: 'Bulk transfers' },
-  { strategy: 'COPY CSV → Polars',    phase: '7E', read:  67.2, write: 262.4, query: null,  ram:   4.3, bestFor: 'RAM-constrained ★' },
-  { strategy: 'async 4-chunk ctid',   phase: '7F', read:  63.8, write: 245.1, query: 18.3,  ram:  15.9, bestFor: 'High concurrency' },
-  { strategy: 'ADBC streaming',       phase: '7G', read:  61.2, write: 133.3, query: 18.6,  ram:   6.7, bestFor: 'Balanced default ★' },
+  { strategy: 'psycopg2 + Pandas',    phase: '1',  read: 159.2, write: 263.4, query: 24.3,  ram: 19.1, bestFor: 'Reference baseline' },
+  { strategy: 'psycopg3 + pgBouncer', phase: '7D', read: 109.0, write: 272.0, query: null,  ram: 21.9, bestFor: 'Connection pooling' },
+  { strategy: 'COPY BINARY',          phase: '7E', read:  81.7, write: 262.4, query: null,  ram: 13.7, bestFor: 'Bulk transfers' },
+  { strategy: 'COPY CSV → Polars',  phase: '7E', read:  67.2, write: 262.4, query: null,  ram:  4.3, bestFor: 'RAM-constrained ★' },
+  { strategy: 'async 4-chunk ctid',   phase: '7F', read:  63.8, write: 245.1, query: 18.3,  ram: 15.9, bestFor: 'High concurrency' },
+  { strategy: 'ADBC streaming',       phase: '7G', read:  61.2, write: 133.3, query: 18.6,  ram:  6.7, bestFor: 'Balanced default ★' },
 ];
-
 const INSIGHTS = [
-  {
-    icon: '⚡',
-    title: 'The 10× DataFrame Rule',
-    teaser: 'Polars processes 28M rows 3–10× faster than Pandas with half the RAM.',
-    body: `<p>For GROUP BY on 28M rows, Polars completes in ~2s vs Pandas ~15s. The
-      key differences: Polars uses Apache Arrow columnar memory (cache-friendly,
-      SIMD-vectorisable), a lazy evaluation DAG that avoids intermediate copies,
-      and a Rust implementation with no GIL involvement.</p>
-      <span class="ic-stat"><strong>Polars GROUP BY:</strong> ~2s &nbsp;|&nbsp; <strong>Pandas GROUP BY:</strong> ~15s</span>
-      <p>If you are building data pipelines with more than 1M rows, switching from
-      Pandas to Polars is the highest-leverage single change — no infrastructure
-      change, no schema change, largely drop-in API.</p>`
-  },
-  {
-    icon: '🔌',
-    title: 'Protocol beats engine: TDS throttles SQL Server',
-    teaser: 'SQL Server lags PostgreSQL despite equivalent hardware — the wire format is the bottleneck.',
-    body: `<p>SQL Server uses Tabular Data Stream (TDS), a row-oriented protocol that
-      frames every row individually with length prefixes. For 28M rows, this generates
-      28M protocol frames on the client side.</p>
-      <p>PostgreSQL's <code>COPY TO STDOUT</code> sends a contiguous binary stream with
-      a single header — the client performs one buffer read instead of 28M frame parses.
-      When the goal is bulk data transfer, protocol framing overhead dominates query
-      execution time, not the query engine itself.</p>`
-  },
-  {
-    icon: '🌊',
-    title: 'Streaming beats materialisation: 40s from one API change',
-    teaser: 'ADBC fetch_record_batch() (61s) beats fetch_arrow_table() (101s) — same data, same server.',
-    body: `<p><code>fetch_arrow_table()</code> accumulates all RecordBatches into a
-      single <code>pa.Table</code> before returning. At 28M rows, the full Arrow table
-      coexists in memory with incoming wire buffers — peak allocation is ~2× the final
-      DataFrame size.</p>
-      <p><code>fetch_record_batch()</code> + <code>reader.read_all()</code> processes
-      batches as they arrive; each batch can be GC'd before the next arrives.</p>
-      <span class="ic-stat">
-        <strong>fetch_arrow_table():</strong> 101.56s / 6.5 GB
-        &nbsp;→&nbsp;
-        <strong>fetch_record_batch():</strong> 61.20s / 6.7 GB
-      </span>
-      <p>40 seconds saved by changing one method name. Whenever the library offers a
-      streaming interface, prefer it over the materialising variant.</p>`
-  },
-  {
-    icon: '🧵',
-    title: 'GIL ceiling: 4× server parallelism → 1.05× client speedup',
-    teaser: 'async 4-chunk improved read from 67.23s to 63.75s despite 4 parallel Postgres backends.',
-    body: `<p><code>asyncio.gather()</code> runs on a single OS thread. Four coroutines
-      await data from four Postgres backends — those DO execute in parallel on the
-      server, each scanning a separate ctid page range. But when data arrives, Python
-      processes it sequentially: build tuple × 7M rows × 4 chunks.</p>
-      <span class="ic-stat">
-        <strong>Expected:</strong> ~4× speedup &nbsp;|&nbsp; <strong>Actual:</strong> 1.05× (67.23s → 63.75s)
-      </span>
-      <p>asyncio is the right tool for I/O-bound fan-out (many small queries). It is
-      the wrong tool for accelerating bulk ingestion where client-side deserialization
-      dominates. The GIL ensures only one thread runs Python bytecode at a time —
-      server parallelism is real; client parallelism is illusory for CPU-bound decoding.</p>`
-  },
-  {
-    icon: '📄',
-    title: 'COPY CSV + Polars SIMD: text beats binary on speed and RAM',
+  { icon: '🗄️', title: 'File vs Network: 1000× write gap at baseline',
+    teaser: 'Parquet write (0.23s) vs Postgres COPY (263s) — the gap is the network stack, not the query engine.',
+    body: '<p>At baseline, Parquet partitioned writes 28M rows in 0.23s. Postgres COPY takes 263s — a 1,143× difference. DuckDB GROUP BY returns in 0.13s; Postgres takes 24.27s — 186×.</p><span class="ic-stat"><strong>Parquet write:</strong> 0.23s &nbsp;|&nbsp; <strong>Postgres COPY:</strong> 263s &nbsp;(1,143×)</span><p>This is not a Postgres failure — it is architectural. File-based stores bypass the network stack entirely. Postgres routes every row through TCP, the PostgreSQL wire protocol, WAL, and fsync. Choosing the right paradigm for your access pattern matters far more than tuning any single backend.</p>' },
+  { icon: '⚡', title: 'The 10× DataFrame rule: Polars vs Pandas',
+    teaser: 'Across 8 of 9 operations, Pandas is 6–10× slower than Polars on 28M rows.',
+    body: '<p>Phase 7A isolated the DataFrame engine from all storage I/O. Every operation — read_csv, filter, groupby, sort, window, string, typecast, concat — ran 6–10× slower in Pandas.</p><span class="ic-stat"><strong>Pandas window:</strong> 38.05s &nbsp;|&nbsp; <strong>Polars window:</strong> 5.07s &nbsp;(7.5×)</span><p>Polars uses Apache Arrow columnar memory with SIMD-vectorised Rust kernels and no GIL. For any pipeline processing more than 1M rows, switching to Polars is the highest-leverage single change.</p>' },
+  { icon: '📦', title: 'MongoDB data locality: 156× read difference from document order',
+    teaser: 'ordered=False insert: 7.80s for AAPL. ordered=True insert: 0.05s. Same index, same query.',
+    body: '<p>ordered=False scatters documents across pages — AAPL documents land on ~8,000 different pages, requiring 8,000 random I/Os: 7.80s. ordered=True keeps documents sequential; a single sequential read suffices: 0.05s.</p><span class="ic-stat"><strong>ordered=False (scattered):</strong> 7.80s &nbsp;|&nbsp; <strong>ordered=True (sequential):</strong> 0.05s &nbsp;(156×)</span><p>Physical disk layout is a first-class performance decision for range queries on document stores. Insert order determines query speed more than indexing strategy.</p>' },
+  { icon: '📄', title: 'COPY CSV + Polars SIMD: text beats binary on speed and RAM',
     teaser: 'COPY CSV (67s / 4.3 GB) beat COPY BINARY (81s / 13.7 GB) — fewer Python objects outweighs fewer bytes.',
-    body: `<p>COPY BINARY sends IEEE-754 floats and fixed-width integers — fewer wire
-      bytes than ASCII digits. But psycopg3 still iterates 28M rows in Python to
-      decode them: one tuple per row, 7 decode calls each = 196M Python operations.</p>
-      <p>COPY CSV sends text bytes into a BytesIO buffer. Polars <code>read_csv()</code>
-      processes the entire buffer in one vectorised Rust + SIMD pass — zero Python-level
-      iteration per row.</p>
-      <span class="ic-stat">
-        <strong>COPY BINARY:</strong> 81s / 13.7 GB
-        &nbsp;→&nbsp;
-        <strong>COPY CSV + Polars:</strong> 67s / 4.3 GB
-      </span>
-      <p>The principle: raw wire throughput matters less than how many Python objects
-      are created during decoding. A vectorised text parser beats a per-value binary
-      decoder at 28M rows.</p>`
-  },
+    body: '<p>COPY BINARY sends IEEE-754 floats — fewer bytes than ASCII. But psycopg3 still iterates 28M rows in Python: one tuple per row, 7 decode calls each = 196M Python operations. COPY CSV hands a BytesIO buffer to Polars read_csv(), which processes it in one vectorised Rust+SIMD pass.</p><span class="ic-stat"><strong>COPY BINARY:</strong> 81s / 13.7 GB &nbsp;→&nbsp; <strong>COPY CSV + Polars:</strong> 67s / 4.3 GB</span><p>Raw wire throughput matters less than how many Python objects are created during decoding.</p>' },
+  { icon: '🌊', title: 'Streaming beats materialisation: 40s from one API change',
+    teaser: 'ADBC fetch_record_batch() (61s) beats fetch_arrow_table() (101s) — same data, same server.',
+    body: '<p>fetch_arrow_table() accumulates all 28M rows into a single pa.Table before returning — peak allocation is ~2× the final DataFrame size. fetch_record_batch() + reader.read_all() processes batches as they arrive; each batch can be GC'd before the next.</p><span class="ic-stat"><strong>fetch_arrow_table():</strong> 101.56s / 6.5 GB &nbsp;→&nbsp; <strong>fetch_record_batch():</strong> 61.20s / 6.7 GB</span><p>40 seconds saved by changing one method name. Whenever the API offers a streaming interface, prefer it.</p>' },
+  { icon: '🧵', title: 'GIL ceiling: 4× server parallelism → 1.05× client speedup',
+    teaser: 'async 4-chunk improved read from 67.23s to 63.75s despite 4 parallel Postgres backends.',
+    body: '<p>asyncio.gather() runs on a single OS thread. Four Postgres backends DO execute in parallel — each scanning a separate ctid page range. But Python processes the results sequentially: build tuple × 7M rows × 4 chunks.</p><span class="ic-stat"><strong>Expected:</strong> ~4× speedup &nbsp;|&nbsp; <strong>Actual:</strong> 1.05× (67.23s → 63.75s)</span><p>asyncio is the right tool for I/O-bound fan-out. It is the wrong tool for bulk ingestion where client-side deserialization dominates.</p>' },
+  { icon: '🔌', title: 'Protocol is the ceiling: TDS locks SQL Server write speed',
+    teaser: 'All SQL Server write methods converge to ~5.7h — TDS framing dominates regardless of insert strategy.',
+    body: '<p>SQL Server bulk_insert, bulk_columnstore, and row_by_row all extrapolate to ~5.3–5.7h for 28M rows. The insert method makes no difference — pymssql's TDS protocol length-prefixes every row individually.</p><span class="ic-stat"><strong>SQL Server (any method):</strong> ~5.7h &nbsp;|&nbsp; <strong>Postgres COPY:</strong> 263s</span><p>No amount of batching fixes a wire-level framing bottleneck in the Python client. Postgres COPY FROM STDIN bypasses row framing entirely — one contiguous binary stream.</p>' },
 ];
 
-// ═══════════════════════════════════════════════════════
-// COLOR UTILITIES
-// ═══════════════════════════════════════════════════════
-function lerp(a, b, t) { return a + (b - a) * t; }
-
-// lower value = greener (better performance)
-function gradColors(values, alpha) {
-  alpha = alpha === undefined ? 0.82 : alpha;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  return values.map(v => {
-    const t = (v - min) / range;                 // 0 = best (green), 1 = worst (red)
-    const r = Math.round(lerp(63,  248, t));
-    const g = Math.round(lerp(185, 81,  t));
-    const b = Math.round(lerp(80,  73,  t));
-    return `rgba(${r},${g},${b},${alpha})`;
-  });
+function lerp(a,b,t){return a+(b-a)*t;}
+function gradColors(vals,alpha){
+  alpha=alpha===undefined?0.82:alpha;
+  const mn=Math.min(...vals),mx=Math.max(...vals),rng=mx-mn||1;
+  return vals.map(v=>{const t=(v-mn)/rng;return `rgba(${Math.round(lerp(63,248,t))},${Math.round(lerp(185,81,t))},${Math.round(lerp(80,73,t))},${alpha})`;});
 }
-function gradBorders(values) { return gradColors(values, 1); }
+function gradBorders(vals){return gradColors(vals,1);}
 
-// ═══════════════════════════════════════════════════════
-// CHART.JS DEFAULTS
-// ═══════════════════════════════════════════════════════
-Chart.defaults.color = '#8b949e';
-Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
-Chart.defaults.font.size = 12;
+Chart.defaults.color='#8b949e';
+Chart.defaults.font.family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif";
+Chart.defaults.font.size=12;
+const GRID='rgba(48,54,61,0.7)';
 
-const GRID = 'rgba(48,54,61,0.7)';
-
-function mkOptions(xLabel, suggestedMax) {
+function mkSingle(xLabel,sugMax){
   return {
-    indexAxis: 'y',
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: { duration: 650, easing: 'easeOutQuart' },
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: '#161b22',
-        borderColor: '#30363d',
-        borderWidth: 1,
-        titleColor: '#e6edf3',
-        bodyColor: '#8b949e',
-        padding: 10,
-        callbacks: {
-          label: ctx => `  ${ctx.parsed.x.toFixed(2)} ${xLabel}`,
-        },
-      },
+    indexAxis:'y',responsive:true,maintainAspectRatio:false,
+    animation:{duration:600,easing:'easeOutQuart'},
+    plugins:{
+      legend:{display:false},
+      tooltip:{backgroundColor:'#161b22',borderColor:'#30363d',borderWidth:1,titleColor:'#e6edf3',bodyColor:'#8b949e',padding:10,
+        callbacks:{label:ctx=>`  ${ctx.parsed.x.toFixed(2)} ${xLabel}`}},
     },
-    scales: {
-      x: {
-        grid: { color: GRID },
-        ticks: { color: '#8b949e' },
-        title: { display: true, text: xLabel, color: '#8b949e', font: { size: 11 } },
-        suggestedMax,
-      },
-      y: {
-        grid: { display: false },
-        ticks: { color: '#e6edf3', font: { size: 11 } },
-      },
+    scales:{
+      x:{grid:{color:GRID},ticks:{color:'#8b949e'},title:{display:true,text:xLabel,color:'#8b949e',font:{size:11}},suggestedMax:sugMax},
+      y:{grid:{display:false},ticks:{color:'#e6edf3',font:{size:11}}},
+    },
+  };
+}
+function mkGroupedH(xLabel,sugMax){
+  return {
+    indexAxis:'y',responsive:true,maintainAspectRatio:false,
+    animation:{duration:600,easing:'easeOutQuart'},
+    plugins:{
+      legend:{display:true,labels:{color:'#e6edf3',usePointStyle:true,pointStyle:'rect',padding:18,font:{size:12}}},
+      tooltip:{backgroundColor:'#161b22',borderColor:'#30363d',borderWidth:1,titleColor:'#e6edf3',bodyColor:'#8b949e',padding:10,
+        callbacks:{label:ctx=>`  ${ctx.dataset.label}: ${ctx.parsed.x.toFixed(2)}s`}},
+    },
+    scales:{
+      x:{grid:{color:GRID},ticks:{color:'#8b949e'},title:{display:true,text:xLabel,color:'#8b949e',font:{size:11}},suggestedMax:sugMax},
+      y:{grid:{display:false},ticks:{color:'#e6edf3',font:{size:11}}},
+    },
+  };
+}
+function mkGroupedLog(){
+  return {
+    responsive:true,maintainAspectRatio:false,
+    animation:{duration:600,easing:'easeOutQuart'},
+    plugins:{
+      legend:{display:true,labels:{color:'#e6edf3',usePointStyle:true,pointStyle:'rect',padding:18,font:{size:12}}},
+      tooltip:{backgroundColor:'#161b22',borderColor:'#30363d',borderWidth:1,titleColor:'#e6edf3',bodyColor:'#8b949e',padding:10,
+        callbacks:{label:ctx=>`  ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}s`}},
+    },
+    scales:{
+      x:{grid:{display:false},ticks:{color:'#e6edf3',font:{size:11}}},
+      y:{type:'logarithmic',grid:{color:GRID},
+        ticks:{color:'#8b949e',callback:function(v){return [0.1,1,10,100,1000].includes(v)?v+'s':null;}},
+        title:{display:true,text:'seconds (log scale)',color:'#8b949e',font:{size:11}}},
     },
   };
 }
 
-// ═══════════════════════════════════════════════════════
-// READ CHART (with time / RAM toggle)
-// ═══════════════════════════════════════════════════════
-let readMode = 'time';
-let readChart;
-
-function buildReadChart() {
-  const ctx = document.getElementById('readChart').getContext('2d');
-  readChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: READ.labels,
-      datasets: [{
-        data: READ.time,
-        backgroundColor: gradColors(READ.time),
-        borderColor: gradBorders(READ.time),
-        borderWidth: 1,
-        borderRadius: 4,
-        borderSkipped: false,
-      }],
-    },
-    options: mkOptions('seconds', 175),
-  });
+function mkDs(data,colors){
+  return {data,backgroundColor:colors||gradColors(data),borderColor:colors?colors.map(c=>c.replace(',0.78',',1')):gradBorders(data),borderWidth:1,borderRadius:4,borderSkipped:false};
 }
 
-function setReadMode(mode) {
-  readMode = mode;
-  document.getElementById('btn-time').classList.toggle('active', mode === 'time');
-  document.getElementById('btn-ram').classList.toggle('active', mode === 'ram');
+// Section 2
+new Chart(document.getElementById('blWriteChart'),{type:'bar',data:{labels:BL_WRITE.labels,datasets:[mkDs(BL_WRITE.time)]},options:mkSingle('seconds',290)});
+new Chart(document.getElementById('blReadChart'), {type:'bar',data:{labels:BL_READ.labels, datasets:[mkDs(BL_READ.time)]}, options:mkSingle('seconds',175)});
+new Chart(document.getElementById('blQueryChart'),{type:'bar',data:{labels:BL_QUERY.labels,datasets:[mkDs(BL_QUERY.time)]},options:mkSingle('seconds',28)});
 
-  const vals   = mode === 'time' ? READ.time : READ.ram;
-  const label  = mode === 'time' ? 'seconds' : 'GB';
-  const maxVal = mode === 'time' ? 175 : 26;
+// Section 3
+new Chart(document.getElementById('dfOpsChart'),{type:'bar',data:{labels:DF_OPS.labels,datasets:[
+  {label:'Pandas',data:DF_OPS.pandas,backgroundColor:'rgba(240,136,62,.78)',borderColor:'#f0883e',borderWidth:1,borderRadius:3},
+  {label:'Polars',data:DF_OPS.polars,backgroundColor:'rgba(63,185,80,.78)', borderColor:'#3fb950',borderWidth:1,borderRadius:3},
+]},options:mkGroupedH('seconds',42)});
+new Chart(document.getElementById('dfBackChart'),{type:'bar',data:{labels:DF_BACK.labels,datasets:[
+  {label:'Pandas',data:DF_BACK.pandas,backgroundColor:'rgba(240,136,62,.78)',borderColor:'#f0883e',borderWidth:1,borderRadius:3},
+  {label:'Polars',data:DF_BACK.polars,backgroundColor:'rgba(63,185,80,.78)', borderColor:'#3fb950',borderWidth:1,borderRadius:3},
+]},options:mkGroupedLog()});
 
-  readChart.data.datasets[0].data = vals;
-  readChart.data.datasets[0].backgroundColor = gradColors(vals);
-  readChart.data.datasets[0].borderColor = gradBorders(vals);
-  readChart.options.scales.x.title.text = label;
-  readChart.options.scales.x.suggestedMax = maxVal;
-  readChart.options.plugins.tooltip.callbacks.label =
-    ctx => `  ${ctx.parsed.x.toFixed(2)} ${label}`;
+// Section 4
+let readMode='time',readChart;
+readChart=new Chart(document.getElementById('readChart'),{type:'bar',data:{labels:READ.labels,datasets:[mkDs(READ.time)]},options:mkSingle('seconds',175)});
+function setReadMode(mode){
+  readMode=mode;
+  document.getElementById('btn-time').classList.toggle('active',mode==='time');
+  document.getElementById('btn-ram').classList.toggle('active',mode==='ram');
+  const vals=mode==='time'?READ.time:READ.ram,label=mode==='time'?'seconds':'GB',mx=mode==='time'?175:26;
+  readChart.data.datasets[0].data=vals;
+  readChart.data.datasets[0].backgroundColor=gradColors(vals);
+  readChart.data.datasets[0].borderColor=gradBorders(vals);
+  readChart.options.scales.x.title.text=label;
+  readChart.options.scales.x.suggestedMax=mx;
+  readChart.options.plugins.tooltip.callbacks.label=ctx=>`  ${ctx.parsed.x.toFixed(2)} ${label}`;
   readChart.update();
 }
+new Chart(document.getElementById('writeChart'),{type:'bar',data:{labels:WRITE.labels,datasets:[mkDs(WRITE.time)]},options:mkSingle('seconds',310)});
+new Chart(document.getElementById('queryChart'),{type:'bar',data:{labels:QUERY.labels,datasets:[mkDs(QUERY.time)]},options:mkSingle('seconds',90)});
 
-// ═══════════════════════════════════════════════════════
-// WRITE CHART
-// ═══════════════════════════════════════════════════════
-function buildWriteChart() {
-  const ctx = document.getElementById('writeChart').getContext('2d');
-  new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: WRITE.labels,
-      datasets: [{
-        data: WRITE.time,
-        backgroundColor: gradColors(WRITE.time),
-        borderColor: gradBorders(WRITE.time),
-        borderWidth: 1,
-        borderRadius: 4,
-        borderSkipped: false,
-      }],
-    },
-    options: mkOptions('seconds', 310),
-  });
-}
-
-// ═══════════════════════════════════════════════════════
-// QUERY CHART
-// ═══════════════════════════════════════════════════════
-function buildQueryChart() {
-  const ctx = document.getElementById('queryChart').getContext('2d');
-  new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: QUERY.labels,
-      datasets: [{
-        data: QUERY.time,
-        backgroundColor: gradColors(QUERY.time),
-        borderColor: gradBorders(QUERY.time),
-        borderWidth: 1,
-        borderRadius: 4,
-        borderSkipped: false,
-      }],
-    },
-    options: mkOptions('seconds', 90),
-  });
-}
-
-// ═══════════════════════════════════════════════════════
-// STRATEGY TABLE
-// ═══════════════════════════════════════════════════════
-function buildTable() {
-  const bestRead  = Math.min(...TABLE_ROWS.map(r => r.read));
-  const bestWrite = Math.min(...TABLE_ROWS.map(r => r.write));
-  const bestQuery = Math.min(...TABLE_ROWS.filter(r => r.query !== null).map(r => r.query));
-  const bestRam   = Math.min(...TABLE_ROWS.map(r => r.ram));
-
-  const fmts = v => v === null
-    ? '<span style="color:var(--text-2)">—</span>'
-    : v.toFixed(1) + 's';
-  const fmtRam = v => v.toFixed(1) + ' GB';
-  const best = (val, ref) => val !== null && val === ref;
-
-  let html = `<thead><tr>
-    <th>Strategy</th><th>Phase</th>
-    <th>Read</th><th>Write</th><th>Query</th><th>Read RAM</th>
-    <th>Best for</th>
-  </tr></thead><tbody>`;
-
-  for (const r of TABLE_ROWS) {
-    html += `<tr>
-      <td><strong>${r.strategy}</strong></td>
-      <td><span class="badge">${r.phase}</span></td>
-      <td class="${best(r.read,  bestRead)  ? 'best' : ''}">${fmts(r.read)}</td>
-      <td class="${best(r.write, bestWrite) ? 'best' : ''}">${fmts(r.write)}</td>
-      <td class="${best(r.query, bestQuery) ? 'best' : ''}">${fmts(r.query)}</td>
-      <td class="${best(r.ram,   bestRam)   ? 'best' : ''}">${fmtRam(r.ram)}</td>
-      <td class="muted">${r.bestFor}</td>
-    </tr>`;
+// Section 5 table
+(function(){
+  const bR=Math.min(...TABLE_ROWS.map(r=>r.read)),bW=Math.min(...TABLE_ROWS.map(r=>r.write));
+  const bQ=Math.min(...TABLE_ROWS.filter(r=>r.query!==null).map(r=>r.query)),bM=Math.min(...TABLE_ROWS.map(r=>r.ram));
+  const fs=v=>v===null?'<span style="color:var(--text-2)">—</span>':v.toFixed(1)+'s';
+  const ib=(v,ref)=>v!==null&&v===ref;
+  let h='<thead><tr><th>Strategy</th><th>Phase</th><th>Read</th><th>Write</th><th>Query</th><th>Read RAM</th><th>Best for</th></tr></thead><tbody>';
+  for(const r of TABLE_ROWS){
+    h+=`<tr><td><strong>${r.strategy}</strong></td><td><span class="badge-sm">${r.phase}</span></td>
+    <td class="${ib(r.read,bR)?'best':''}">${fs(r.read)}</td>
+    <td class="${ib(r.write,bW)?'best':''}">${fs(r.write)}</td>
+    <td class="${ib(r.query,bQ)?'best':''}">${fs(r.query)}</td>
+    <td class="${ib(r.ram,bM)?'best':''}">${r.ram.toFixed(1)} GB</td>
+    <td class="muted">${r.bestFor}</td></tr>`;
   }
+  document.getElementById('stratTable').innerHTML=h+'</tbody>';
+})();
 
-  html += '</tbody>';
-  document.getElementById('stratTable').innerHTML = html;
-}
-
-// ═══════════════════════════════════════════════════════
-// INSIGHTS
-// ═══════════════════════════════════════════════════════
-function buildInsights() {
-  document.getElementById('insightsGrid').innerHTML = INSIGHTS.map(ins => `
-    <details class="ic">
-      <summary>
-        <div class="ic-icon">${ins.icon}</div>
-        <div style="flex:1;min-width:0">
-          <div class="ic-title">${ins.title}</div>
-          <div class="ic-teaser">${ins.teaser}</div>
-        </div>
-        <svg class="ic-chev" width="13" height="13" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
-      </summary>
-      <div class="ic-body">${ins.body}</div>
-    </details>
-  `).join('');
-}
-
-// ═══════════════════════════════════════════════════════
-// INIT
-// ═══════════════════════════════════════════════════════
-buildReadChart();
-buildWriteChart();
-buildQueryChart();
-buildTable();
-buildInsights();
+// Section 6 insights
+(function(){
+  const chev='<svg class="ic-chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>';
+  document.getElementById('insightsGrid').innerHTML=INSIGHTS.map(i=>`
+    <details class="ic"><summary>
+      <div class="ic-icon">${i.icon}</div>
+      <div style="flex:1;min-width:0"><div class="ic-title">${i.title}</div><div class="ic-teaser">${i.teaser}</div></div>
+      ${chev}</summary><div class="ic-body">${i.body}</div></details>`).join('');
+})();
 </script>
 </body>
 </html>
