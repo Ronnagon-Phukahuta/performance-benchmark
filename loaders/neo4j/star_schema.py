@@ -117,10 +117,8 @@ def query_join() -> None:
             """
             MATCH (t:Ticker)-[:IN_SECTOR]->(s:Sector)
             MATCH (t)-[:HAS_PRICE]->(p:Price)
-            RETURN s.name AS sector,
-                   avg(p.close) AS avg_close,
-                   max(p.close) AS max_close,
-                   min(p.close) AS min_close
+            WITH s.name AS sector, avg(p.close) AS avg_close, max(p.close) AS max_close, min(p.close) AS min_close
+            RETURN sector, avg_close, max_close, min_close
             ORDER BY sector
             """
         )
