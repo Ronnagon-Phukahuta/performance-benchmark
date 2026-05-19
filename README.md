@@ -8,7 +8,12 @@
 > - Phase 5: Redpanda — streaming producer/consumer
 > - Phase 6: Neo4j — graph traversal, OLTP, concurrent reads
 >
-> **Phase 7+ will introduce targeted optimisations and cross-paradigm pipelines.**
+> **Phase 7 applies 7 successive optimisations to PostgreSQL — DataFrame engine swap, pgBouncer + psycopg3 binary protocol, COPY binary/CSV, async pipeline, and ADBC Arrow Flight.**
+> - Phase 7A–7C: Polars vs Pandas — 6–10× DataFrame speedup; bottleneck diagnosis
+> - Phase 7D: pgBouncer + psycopg3 — Postgres read 159s → 109s; Redpanda 1,933 → 10,545 rows/sec
+> - Phase 7E: COPY binary/CSV protocol — read 159s → 67s, RAM 19 GB → 4.3 GB
+> - Phase 7F: async 4-chunk ctid SELECT — GIL ceiling confirmed, query 24s → 18s
+> - Phase 7G: ADBC Arrow Flight — read 159s → 61s (2.60×), write 263s → 133s (1.98×)
 
 ---
 
@@ -208,6 +213,71 @@
 
 ---
 
+## Phase 7 — PostgreSQL Optimisation Results
+
+Seven successive optimisations applied to the Phase 1 PostgreSQL baseline (psycopg2 + Pandas). Each phase targeted a different bottleneck — the DataFrame engine, the driver, the COPY path, connection pooling, async concurrency, and the client-side Arrow representation.
+
+**Overall improvement (Phase 1 → Phase 7G):**
+
+| Metric | Baseline (Phase 1) | Best Result | Improvement |
+|---|---|---|---|
+| Postgres Read (28M rows) | 159.16s / 19,125 MB | 61.20s / 6,723 MB (ADBC streaming) | **2.60×** |
+| Postgres Write (28M rows) | 263.43s / 16,352 MB | 133.26s / 3,193 MB (ADBC ingest) | **1.98×** |
+| Postgres Query (GROUP BY) | 24.27s | 18.31s (async psycopg3) | **1.32×** |
+
+### Phase 7A–7C — DataFrame Engine (Polars vs Pandas)
+
+| Operation | Pandas | Polars | Speedup |
+|---|---|---|---|
+| filter + groupby | 14.64s | 1.46s | 10.0× |
+| pivot | 38.05s | 5.15s | 7.4× |
+| multi-join | 19.11s | 1.98s | 9.7× |
+| Redpanda consumer (best op) | 15.36s | 1.56s | 9.8× |
+
+- Pure in-process DataFrame: Polars 6–10× faster across all 8 tested operations
+- Redpanda consumer throughput with Polars backend: 12.5× faster
+- Conclusion: drop-in replacement works at the DataFrame layer; Postgres and Redpanda throughput is protocol-bound, not DataFrame-bound
+
+### Phase 7D — pgBouncer + psycopg3 Binary Protocol
+
+| Change | Before | After | Improvement |
+|---|---|---|---|
+| Postgres read (psycopg3 binary) | 159.16s | 142s | -11% |
+| Postgres read (+ pgBouncer pool=20) | 159.16s | 109s | **-31%** |
+| Redpanda consumer (4 partitions) | 1,933 rows/sec | 10,545 rows/sec | **5.46×** |
+
+### Phase 7E — COPY Protocol
+
+| Strategy | Duration | Peak RAM | vs Phase 1 |
+|---|---|---|---|
+| psycopg2 baseline | 159.16s | 19,125 MB | — |
+| COPY TO STDOUT FORMAT BINARY | 81.68s | 13,732 MB | -49% |
+| 🏆 COPY TO STDOUT FORMAT CSV → Polars SIMD | 67.23s | 4,257 MB | **-58%, RAM -78%** |
+
+### Phase 7F — Async Pipeline
+
+| Operation | Before | After | Improvement |
+|---|---|---|---|
+| Read (async 4-chunk ctid) | 67.23s | 63.75s | 1.05× — GIL ceiling |
+| Query (async GROUP BY) | 24.27s | 18.31s | **1.32×** |
+
+GIL prevents true parallelism on the read path — 4 async chunks give marginal gains.
+Server-side GROUP BY moves the bottleneck to Postgres executor, which async handles well.
+
+### Phase 7G — ADBC Arrow Flight
+
+| Operation | Duration | Peak RAM | vs Phase 1 |
+|---|---|---|---|
+| Write — adbc_ingest (COPY BINARY) | 133.26s | 3,193 MB | **-49%, 2.0×** |
+| Read — fetch_arrow_table() | 101.56s | 6,506 MB | -36% (text protocol) |
+| 🏆 Read — fetch_record_batch() streaming | 61.20s | 6,723 MB | **-62%, 2.60×** |
+| Query — SELECT GROUP BY → Arrow | 18.56s | 3,169 MB | -23% |
+
+`adbc_ingest()` uses true binary COPY — the only write path that halved both time and RAM.
+ADBC read defaults to text protocol (date/ticker return as `string` not `date32`); streaming wins by avoiding full `pa.Table` materialisation before the cursor closes.
+
+---
+
 ## Benchmark Summaries
 
 | File | Focus |
@@ -217,6 +287,14 @@
 | [results/base/redis_benchmark.md](results/base/redis_benchmark.md) | Redis — Key-Value / Sorted Set / Cache simulation / Concurrent reads |
 | [results/base/redpanda_benchmark.md](results/base/redpanda_benchmark.md) | Redpanda — Streaming anti-pattern vs true use case, producer/consumer throughput |
 | [results/base/neo4j_benchmark.md](results/base/neo4j_benchmark.md) | Neo4j — Graph traversal, JOIN, OLTP, concurrent reads |
+| [results/optimized/phase7a_dataframe_benchmark.md](results/optimized/phase7a_dataframe_benchmark.md) | Phase 7A — Polars vs Pandas: 8 operations, full results |
+| [results/optimized/phase7b_polars_backend_benchmark.md](results/optimized/phase7b_polars_backend_benchmark.md) | Phase 7B — Polars as storage backend (Postgres, DuckDB, Parquet, Redpanda) |
+| [results/optimized/phase7c_polars_vs_pandas_benchmark.md](results/optimized/phase7c_polars_vs_pandas_benchmark.md) | Phase 7C — Side-by-side comparison and decision matrix |
+| [results/optimized/phase7d_pgbouncer_psycopg3_redpanda_multipartition_benchmark.md](results/optimized/phase7d_pgbouncer_psycopg3_redpanda_multipartition_benchmark.md) | Phase 7D — pgBouncer + psycopg3 binary; Redpanda multi-partition |
+| [results/optimized/phase7e_copy_binary_benchmark.md](results/optimized/phase7e_copy_binary_benchmark.md) | Phase 7E — COPY BINARY and COPY CSV → Polars SIMD |
+| [results/optimized/phase7f_async_pipeline_benchmark.md](results/optimized/phase7f_async_pipeline_benchmark.md) | Phase 7F — Async pipeline, ctid chunking, GIL ceiling analysis |
+| [results/optimized/phase7g_arrow_flight_benchmark.md](results/optimized/phase7g_arrow_flight_benchmark.md) | Phase 7G — ADBC Arrow Flight: adbc_ingest write, streaming read |
+| [results/optimized/phase7_final_summary.md](results/optimized/phase7_final_summary.md) | Phase 7 Final Summary — full progression across all 7 strategies |
 
 ---
 
@@ -337,6 +415,19 @@ docker compose up -d neo4j
 
 py -m loaders.neo4j.star_schema
 
+# Phase 7 — PostgreSQL optimisations
+# Install additional drivers
+pip install "psycopg[binary]" adbc-driver-postgresql
+
+# Start pgBouncer (transaction-mode pool, port 6432)
+docker compose up -d pgbouncer
+
+py -m loaders.postgres.pgbouncer_psycopg3  # Phase 7D — binary protocol + pgBouncer
+py -m loaders.postgres.copy_binary          # Phase 7E — COPY BINARY and COPY CSV
+py -m loaders.postgres.async_pipeline       # Phase 7F — async ctid chunking
+py -m loaders.postgres.arrow_flight         # Phase 7G — ADBC adbc_ingest + streaming read
+py -m loaders.redpanda.multi_partition      # Phase 7D — 4-partition parallel consumer
+
 # 6. View results table
 py -m benchmark.run_all
 
@@ -346,6 +437,13 @@ py -m benchmark.complexity
 # 8. View system info
 py -m benchmark.system_info
 ```
+
+### Interactive Dashboard
+
+A full benchmark dashboard (all phases, interactive charts) is published at:
+**https://[username].github.io/performance-benchmark/**
+
+To run locally: open `docs/index.html` directly in a browser — no build step required.
 
 ---
 
@@ -362,11 +460,16 @@ performance-benchmark/
 ├── loaders/
 │   ├── duckdb/             # 7 variants: row_by_row, batch, bulk, copy_csv, direct_parquet
 │   ├── parquet/            # 5 variants: single_file, lazy, compressed, partitioned
-│   ├── postgres/           # 3 variants: row_by_row, batch, bulk_copy
+│   ├── postgres/           # Phase 1–3: row_by_row, batch, bulk_copy
+│   │   ├── pgbouncer_psycopg3.py  # Phase 7D — psycopg3 binary + pgBouncer pool
+│   │   ├── copy_binary.py         # Phase 7E — COPY BINARY and COPY CSV → Polars
+│   │   ├── async_pipeline.py      # Phase 7F — async ctid chunking
+│   │   └── arrow_flight.py        # Phase 7G — ADBC adbc_ingest + streaming read
 │   ├── sqlserver/          # 3 variants: bulk_insert, bulk_columnstore, row_by_row
 │   ├── mongodb/            # 4 variants: bulk_insert, row_by_row, star_schema_embedded, star_schema_lookup
 │   ├── redis/              # star_schema: write, OLTP, sorted set, cache simulation, concurrent
 │   ├── redpanda/           # star_schema: batch anti-pattern; streaming: true use case
+│   │   └── multi_partition.py     # Phase 7D — 4-partition parallel consumer
 │   ├── neo4j/              # star_schema: write_graph, write_prices, JOIN, OLTP, traversal, concurrent
 │   └── kaggle_loader.py    # builds all_stocks.csv from 8,049 CSV files
 ├── data_prep/
@@ -375,12 +478,23 @@ performance-benchmark/
 ├── results/
 │   ├── benchmark_results.json
 │   ├── README.md
-│   └── base/
-│       ├── bulk_load_benchmark.md
-│       ├── star_schema_benchmark.md
-│       ├── redis_benchmark.md
-│       ├── redpanda_benchmark.md
-│       └── neo4j_benchmark.md
+│   ├── base/
+│   │   ├── bulk_load_benchmark.md
+│   │   ├── star_schema_benchmark.md
+│   │   ├── redis_benchmark.md
+│   │   ├── redpanda_benchmark.md
+│   │   └── neo4j_benchmark.md
+│   └── optimized/
+│       ├── phase7a_dataframe_benchmark.md
+│       ├── phase7b_polars_backend_benchmark.md
+│       ├── phase7c_polars_vs_pandas_benchmark.md
+│       ├── phase7d_pgbouncer_psycopg3_redpanda_multipartition_benchmark.md
+│       ├── phase7e_copy_binary_benchmark.md
+│       ├── phase7f_async_pipeline_benchmark.md
+│       ├── phase7g_arrow_flight_benchmark.md
+│       └── phase7_final_summary.md
+├── docs/
+│   └── index.html          # GitHub Pages dashboard — all phases, interactive charts
 ├── data/
 │   ├── raw/                # all_stocks.csv (2.46 GB)
 │   ├── duckdb/             # DuckDB database files
