@@ -6,8 +6,8 @@ new phases may be added based on findings or community feedback.
 ---
 
 ## In Progress
-- [ ] Phase 5 — Redpanda (Streaming)
-- [ ] Phase 6 — Neo4j (Graph DB)
+- [x] Phase 5 — Redpanda (Streaming)
+- [x] Phase 6 — Neo4j (Graph DB)
 
 ## Planned — Optimization
 - [ ] Phase 7 — Polars vs Pandas (same queries, measure delta)
