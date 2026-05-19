@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Python Data Storage Benchmark | 28M rows · 8 backends</title>
   <meta name="description" content="Performance benchmark comparing 8 storage backends across 28 million rows of financial OHLCV data, with 7 phases of optimization.">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -469,6 +469,25 @@ function mkDs(data,colors){
   return {data,backgroundColor:colors||gradColors(data),borderColor:colors?colors.map(c=>c.replace(',0.78',',1')):gradBorders(data),borderWidth:1,borderRadius:4,borderSkipped:false};
 }
 
+// readChart and setReadMode must be global for onclick="setReadMode(...)" attributes
+let readMode='time',readChart;
+function setReadMode(mode){
+  readMode=mode;
+  document.getElementById('btn-time').classList.toggle('active',mode==='time');
+  document.getElementById('btn-ram').classList.toggle('active',mode==='ram');
+  const vals=mode==='time'?READ.time:READ.ram,label=mode==='time'?'seconds':'GB',mx=mode==='time'?175:26;
+  readChart.data.datasets[0].data=vals;
+  readChart.data.datasets[0].backgroundColor=gradColors(vals);
+  readChart.data.datasets[0].borderColor=gradBorders(vals);
+  readChart.options.scales.x.title.text=label;
+  readChart.options.scales.x.suggestedMax=mx;
+  readChart.options.plugins.tooltip.callbacks.label=ctx=>`  ${ctx.parsed.x.toFixed(2)} ${label}`;
+  readChart.update();
+}
+
+// All chart and DOM initialisation runs after Chart.js (deferred) is ready
+document.addEventListener('DOMContentLoaded',function(){
+
 // Section 2
 new Chart(document.getElementById('blWriteChart'),{type:'bar',data:{labels:BL_WRITE.labels,datasets:[mkDs(BL_WRITE.time)]},options:mkSingle('seconds',290)});
 new Chart(document.getElementById('blReadChart'), {type:'bar',data:{labels:BL_READ.labels, datasets:[mkDs(BL_READ.time)]}, options:mkSingle('seconds',175)});
@@ -485,21 +504,7 @@ new Chart(document.getElementById('dfBackChart'),{type:'bar',data:{labels:DF_BAC
 ]},options:mkGroupedLog()});
 
 // Section 4
-let readMode='time',readChart;
 readChart=new Chart(document.getElementById('readChart'),{type:'bar',data:{labels:READ.labels,datasets:[mkDs(READ.time)]},options:mkSingle('seconds',175)});
-function setReadMode(mode){
-  readMode=mode;
-  document.getElementById('btn-time').classList.toggle('active',mode==='time');
-  document.getElementById('btn-ram').classList.toggle('active',mode==='ram');
-  const vals=mode==='time'?READ.time:READ.ram,label=mode==='time'?'seconds':'GB',mx=mode==='time'?175:26;
-  readChart.data.datasets[0].data=vals;
-  readChart.data.datasets[0].backgroundColor=gradColors(vals);
-  readChart.data.datasets[0].borderColor=gradBorders(vals);
-  readChart.options.scales.x.title.text=label;
-  readChart.options.scales.x.suggestedMax=mx;
-  readChart.options.plugins.tooltip.callbacks.label=ctx=>`  ${ctx.parsed.x.toFixed(2)} ${label}`;
-  readChart.update();
-}
 new Chart(document.getElementById('writeChart'),{type:'bar',data:{labels:WRITE.labels,datasets:[mkDs(WRITE.time)]},options:mkSingle('seconds',310)});
 new Chart(document.getElementById('queryChart'),{type:'bar',data:{labels:QUERY.labels,datasets:[mkDs(QUERY.time)]},options:mkSingle('seconds',90)});
 
@@ -530,6 +535,8 @@ new Chart(document.getElementById('queryChart'),{type:'bar',data:{labels:QUERY.l
       <div style="flex:1;min-width:0"><div class="ic-title">${i.title}</div><div class="ic-teaser">${i.teaser}</div></div>
       ${chev}</summary><div class="ic-body">${i.body}</div></details>`).join('');
 })();
+
+}); // end DOMContentLoaded
 </script>
 </body>
 </html>
