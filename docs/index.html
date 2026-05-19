@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Python Data Storage Benchmark | 28M rows · 8 backends</title>
   <meta name="description" content="Performance benchmark comparing 8 storage backends across 28 million rows of financial OHLCV data, with 7 phases of optimization.">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -202,6 +202,28 @@
     }
     footer a { color: var(--accent); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
+
+    .env-section { margin: 2.5rem 0; }
+    .env-section .sec-hdr { margin-bottom: 1.25rem; }
+    .env-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media (max-width: 680px) { .env-cols { grid-template-columns: 1fr; } }
+    .env-col-hdr {
+      font-size: .67rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .08em; color: var(--text-2); margin-bottom: .75rem;
+      padding-bottom: .45rem; border-bottom: 1px solid var(--border);
+    }
+    .spec-list { display: flex; flex-direction: column; gap: .45rem; }
+    .spec-card {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: var(--r); padding: .55rem .85rem;
+      display: flex; justify-content: space-between; align-items: baseline; gap: .5rem;
+    }
+    .spec-card .spec-key { font-size: .8rem; color: var(--text-2); white-space: nowrap; }
+    .spec-card .spec-val { font-size: .8rem; color: var(--text); font-weight: 500; text-align: right; }
+    .env-note {
+      margin-top: 1rem; font-size: .75rem; color: var(--text-2);
+      font-style: italic; text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -231,6 +253,41 @@
       <div class="stat"><div class="val">1.98&times;</div><div class="lbl">Write improvement</div></div>
       <div class="stat"><div class="val">8</div><div class="lbl">Storage paradigms</div></div>
     </div>
+  </section>
+
+  <section class="env-section">
+    <div class="sec-hdr">
+      <h2>Test Environment</h2>
+      <p>Hardware and software used for all benchmarks in this project</p>
+    </div>
+    <div class="env-cols">
+      <div>
+        <div class="env-col-hdr">Hardware</div>
+        <div class="spec-list">
+          <div class="spec-card"><span class="spec-key">CPU</span><span class="spec-val">Intel Core i5-12400F &mdash; 6c&thinsp;/&thinsp;12t, 2.50&thinsp;GHz base / 4.40&thinsp;GHz boost</span></div>
+          <div class="spec-card"><span class="spec-key">RAM</span><span class="spec-val">31.8 GB</span></div>
+          <div class="spec-card"><span class="spec-key">Storage</span><span class="spec-val">NVMe SSD</span></div>
+          <div class="spec-card"><span class="spec-key">OS</span><span class="spec-val">Windows 11</span></div>
+          <div class="spec-card"><span class="spec-key">GPU</span><span class="spec-val" style="color:var(--text-2)">NVIDIA RTX 4060 8&thinsp;GB &mdash; not utilized</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="env-col-hdr">Software</div>
+        <div class="spec-list">
+          <div class="spec-card"><span class="spec-key">Python</span><span class="spec-val">3.13.4</span></div>
+          <div class="spec-card"><span class="spec-key">Polars</span><span class="spec-val">1.20.0</span></div>
+          <div class="spec-card"><span class="spec-key">DuckDB</span><span class="spec-val">1.2.2</span></div>
+          <div class="spec-card"><span class="spec-key">Pandas</span><span class="spec-val">2.2.3</span></div>
+          <div class="spec-card"><span class="spec-key">Redis</span><span class="spec-val">7.4.8</span></div>
+          <div class="spec-card"><span class="spec-key">MongoDB</span><span class="spec-val">7.0.32</span></div>
+          <div class="spec-card"><span class="spec-key">Redpanda</span><span class="spec-val">v26.1.6</span></div>
+          <div class="spec-card"><span class="spec-key">Neo4j</span><span class="spec-val">5.26.25</span></div>
+          <div class="spec-card"><span class="spec-key">kafka-python</span><span class="spec-val">2.3.1</span></div>
+          <div class="spec-card"><span class="spec-key">neo4j driver</span><span class="spec-val">6.1.0</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="env-note">All benchmarks single-machine. GPU not utilized.</p>
   </section>
 
   <div class="phase-divider"></div>
@@ -395,13 +452,13 @@ const INSIGHTS = [
     body: '<p>COPY BINARY sends IEEE-754 floats — fewer bytes than ASCII. But psycopg3 still iterates 28M rows in Python: one tuple per row, 7 decode calls each = 196M Python operations. COPY CSV hands a BytesIO buffer to Polars read_csv(), which processes it in one vectorised Rust+SIMD pass.</p><span class="ic-stat"><strong>COPY BINARY:</strong> 81s / 13.7 GB &nbsp;→&nbsp; <strong>COPY CSV + Polars:</strong> 67s / 4.3 GB</span><p>Raw wire throughput matters less than how many Python objects are created during decoding.</p>' },
   { icon: '🌊', title: 'Streaming beats materialisation: 40s from one API change',
     teaser: 'ADBC fetch_record_batch() (61s) beats fetch_arrow_table() (101s) — same data, same server.',
-    body: '<p>fetch_arrow_table() accumulates all 28M rows into a single pa.Table before returning — peak allocation is ~2× the final DataFrame size. fetch_record_batch() + reader.read_all() processes batches as they arrive; each batch can be GC'd before the next.</p><span class="ic-stat"><strong>fetch_arrow_table():</strong> 101.56s / 6.5 GB &nbsp;→&nbsp; <strong>fetch_record_batch():</strong> 61.20s / 6.7 GB</span><p>40 seconds saved by changing one method name. Whenever the API offers a streaming interface, prefer it.</p>' },
+    body: '<p>fetch_arrow_table() accumulates all 28M rows into a single pa.Table before returning — peak allocation is ~2× the final DataFrame size. fetch_record_batch() + reader.read_all() processes batches as they arrive; each batch can be GC\'d before the next.</p><span class="ic-stat"><strong>fetch_arrow_table():</strong> 101.56s / 6.5 GB &nbsp;→&nbsp; <strong>fetch_record_batch():</strong> 61.20s / 6.7 GB</span><p>40 seconds saved by changing one method name. Whenever the API offers a streaming interface, prefer it.</p>' },
   { icon: '🧵', title: 'GIL ceiling: 4× server parallelism → 1.05× client speedup',
     teaser: 'async 4-chunk improved read from 67.23s to 63.75s despite 4 parallel Postgres backends.',
     body: '<p>asyncio.gather() runs on a single OS thread. Four Postgres backends DO execute in parallel — each scanning a separate ctid page range. But Python processes the results sequentially: build tuple × 7M rows × 4 chunks.</p><span class="ic-stat"><strong>Expected:</strong> ~4× speedup &nbsp;|&nbsp; <strong>Actual:</strong> 1.05× (67.23s → 63.75s)</span><p>asyncio is the right tool for I/O-bound fan-out. It is the wrong tool for bulk ingestion where client-side deserialization dominates.</p>' },
   { icon: '🔌', title: 'Protocol is the ceiling: TDS locks SQL Server write speed',
     teaser: 'All SQL Server write methods converge to ~5.7h — TDS framing dominates regardless of insert strategy.',
-    body: '<p>SQL Server bulk_insert, bulk_columnstore, and row_by_row all extrapolate to ~5.3–5.7h for 28M rows. The insert method makes no difference — pymssql's TDS protocol length-prefixes every row individually.</p><span class="ic-stat"><strong>SQL Server (any method):</strong> ~5.7h &nbsp;|&nbsp; <strong>Postgres COPY:</strong> 263s</span><p>No amount of batching fixes a wire-level framing bottleneck in the Python client. Postgres COPY FROM STDIN bypasses row framing entirely — one contiguous binary stream.</p>' },
+    body: '<p>SQL Server bulk_insert, bulk_columnstore, and row_by_row all extrapolate to ~5.3–5.7h for 28M rows. The insert method makes no difference — pymssql\'s TDS protocol length-prefixes every row individually.</p><span class="ic-stat"><strong>SQL Server (any method):</strong> ~5.7h &nbsp;|&nbsp; <strong>Postgres COPY:</strong> 263s</span><p>No amount of batching fixes a wire-level framing bottleneck in the Python client. Postgres COPY FROM STDIN bypasses row framing entirely — one contiguous binary stream.</p>' },
 ];
 
 function lerp(a,b,t){return a+(b-a)*t;}
