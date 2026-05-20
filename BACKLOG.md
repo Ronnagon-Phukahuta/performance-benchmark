@@ -10,12 +10,12 @@ new phases may be added based on findings or community feedback.
 - [x] Phase 6 — Neo4j (Graph DB)
 
 ## Planned — Optimization
-- [ ] Phase 7 — Polars vs Pandas (same queries, measure delta)
-- [ ] Phase 8 — Postgres with pgBouncer connection pooling
+- [x] Phase 7 — Polars vs Pandas (same queries, measure delta)
+- [x] Phase 8 — Postgres with pgBouncer connection pooling
 - [ ] Phase 9 — Indexed vs non-indexed (full paradigm comparison)
 - [ ] Phase 10 — MongoDB optimized pipeline ($lookup order, SCAN vs KEYS)
 - [ ] Phase 11 — SQL Server BCP vs pymssql (bypass TDS bottleneck)
-- [ ] Phase X — Redpanda multi-partition (20 partitions, partition by ticker_id)
+- [x] Phase X — Redpanda multi-partition (20 partitions, partition by ticker_id)
       Baseline: 1 partition, concurrent scale linear (5 threads = 5x slower)
       Expected: 20 partitions → 20 consumers read in parallel → near-linear speedup
       This is the correct Kafka parallelism pattern — architectural decision at topic creation

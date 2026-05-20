@@ -96,6 +96,7 @@
     .tag-base  { background: rgba(248,81,73,.12);  color: #f85149; border: 1px solid rgba(248,81,73,.3); }
     .tag-df    { background: rgba(88,166,255,.12); color: #58a6ff; border: 1px solid rgba(88,166,255,.3); }
     .tag-proto { background: rgba(63,185,80,.12);  color: #3fb950; border: 1px solid rgba(63,185,80,.3); }
+    .tag-index { background: rgba(240,136,62,.12); color: #f0883e; border: 1px solid rgba(240,136,62,.3); }
 
     .sec { margin: 2.5rem 0; }
     .sec-hdr { margin-bottom: 1.1rem; }
@@ -371,6 +372,28 @@
 
   <div class="phase-divider"></div>
 
+  <div class="phase-sec-hdr">
+    <span class="phase-tag tag-index">Phase 9&#8211;11</span>
+    <h2>Indexing &amp; Protocol Bypass</h2>
+    <p>Phase 9 adds B-tree indexes to Postgres and MongoDB and measures impact per query type. Phase 11 replaces pymssql with server-side BULK INSERT, bypassing TDS row framing entirely.</p>
+  </div>
+
+  <div class="grid-2">
+    <section class="sec">
+      <div class="sec-hdr"><h2>Index Impact: Point Lookup</h2><p>Postgres &amp; MongoDB &mdash; no index vs B-tree index (log scale)</p></div>
+      <div class="card"><div class="ch-md"><canvas id="idxLookupChart"></canvas></div></div>
+    </section>
+    <section class="sec">
+      <div class="sec-hdr"><h2>SQL Server: TDS vs Protocol Bypass</h2><p>Phase 11 &mdash; log scale &middot; pymssql extrapolated from 100K subset</p></div>
+      <div class="card">
+        <div class="ch-md"><canvas id="sqlBypassChart"></canvas></div>
+        <p class="chart-note">pymssql ~5.7h extrapolated &middot; BULK INSERT and BCP measured on full 28M rows.</p>
+      </div>
+    </section>
+  </div>
+
+  <div class="phase-divider"></div>
+
   <section class="sec">
     <div class="sec-hdr">
       <h2>Postgres Protocol Strategy Comparison</h2>
@@ -429,6 +452,15 @@ const QUERY = {
   labels: ['Postgres native','COPY → DuckDB','async server-side','ADBC'],
   time:   [24.27, 76.75, 18.31, 18.56],
 };
+const IDX_LOOKUP = {
+  labels:   ['Postgres lookup','MongoDB lookup'],
+  no_index: [22.80, 7.39],
+  indexed:  [0.04,  0.04],
+};
+const SQL_BYPASS = {
+  labels: ['pymssql (TDS ~5.7h)','BULK INSERT','BCP'],
+  time:   [20520, 72.20, 74.07],
+};
 const TABLE_ROWS = [
   { strategy: 'psycopg2 + Pandas',    phase: '1',  read: 159.2, write: 263.4, query: 24.3,  ram: 19.1, bestFor: 'Reference baseline' },
   { strategy: 'psycopg3 + pgBouncer', phase: '7D', read: 109.0, write: 272.0, query: null,  ram: 21.9, bestFor: 'Connection pooling' },
@@ -459,6 +491,12 @@ const INSIGHTS = [
   { icon: '🔌', title: 'Protocol is the ceiling: TDS locks SQL Server write speed',
     teaser: 'All SQL Server write methods converge to ~5.7h — TDS framing dominates regardless of insert strategy.',
     body: '<p>SQL Server bulk_insert, bulk_columnstore, and row_by_row all extrapolate to ~5.3–5.7h for 28M rows. The insert method makes no difference — pymssql\'s TDS protocol length-prefixes every row individually.</p><span class="ic-stat"><strong>SQL Server (any method):</strong> ~5.7h &nbsp;|&nbsp; <strong>Postgres COPY:</strong> 263s</span><p>No amount of batching fixes a wire-level framing bottleneck in the Python client. Postgres COPY FROM STDIN bypasses row framing entirely — one contiguous binary stream.</p>' },
+  { icon: '\uD83D\uDD0D', title: 'Index impact: 570&times; for point lookup, invisible for full aggregation',
+    teaser: 'Postgres lookup 22.80s &rarr; 0.04s. GROUP BY still uses Seq Scan &mdash; index irrelevant for full aggregation.',
+    body: '<p>A B-tree index on ticker transforms a 22.80s full-table scan into a 0.04s index lookup &mdash; 570&times; faster. MongoDB shows the same pattern: 7.39s &rarr; 0.04s (185&times;). Both backends converge to 0.04s regardless of engine or document size.</p><span class="ic-stat"><strong>Postgres lookup no index:</strong> 22.80s &nbsp;&rarr;&nbsp; <strong>indexed:</strong> 0.04s &nbsp;(570&times;)</span><p>But GROUP BY ticker &mdash; which must visit every row &mdash; shows no benefit or regression. The Postgres planner correctly ignores the index and uses Parallel Seq Scan. MongoDB\'s streaming aggregate with index hint is 1.69&times; slower (40.99s vs 24.27s): the index enforces ordered traversal where a hash aggregate over bulk BSON batches would be faster.</p><span class="ic-stat"><strong>MongoDB GROUP BY no index:</strong> 24.27s &nbsp;&rarr;&nbsp; <strong>with index hint:</strong> 40.99s &nbsp;(1.69&times; slower)</span><p>Indexes pay off only when the query is selective enough to skip the majority of rows.</p>' },
+  { icon: '\u2699\uFE0F', title: 'TDS was the real SQL Server bottleneck: 285&times; from one architectural change',
+    teaser: 'pymssql ~5.7h &rarr; BULK INSERT 72s. Same server, same data, different protocol.',
+    body: '<p>All pymssql write paths &mdash; bulk_insert, bulk_columnstore, row_by_row &mdash; converge to ~5.7h because pymssql wraps every row in TDS framing: one length-prefix and one type byte per column &times; 8 columns &times; 28M rows = 224M extra Python operations before SQL Server sees a single byte of data.</p><span class="ic-stat"><strong>pymssql (any method):</strong> ~5.7h &nbsp;&rarr;&nbsp; <strong>BULK INSERT:</strong> 72.20s &nbsp;(285&times;)</span><p>BULK INSERT executes entirely server-side: SQL Server reads the CSV from its own filesystem with no per-row network framing. BCP achieves identical throughput (74.07s) using the TDS Bulk Copy Protocol extension &mdash; still over the wire, but as a continuous binary stream. The subsequent GROUP BY query returned 8,049 tickers in 0.73s &mdash; SQL Server was never slow at queries.</p>' },
 ];
 
 function lerp(a,b,t){return a+(b-a)*t;}
@@ -564,6 +602,23 @@ new Chart(document.getElementById('dfBackChart'),{type:'bar',data:{labels:DF_BAC
 readChart=new Chart(document.getElementById('readChart'),{type:'bar',data:{labels:READ.labels,datasets:[mkDs(READ.time)]},options:mkSingle('seconds',175)});
 new Chart(document.getElementById('writeChart'),{type:'bar',data:{labels:WRITE.labels,datasets:[mkDs(WRITE.time)]},options:mkSingle('seconds',310)});
 new Chart(document.getElementById('queryChart'),{type:'bar',data:{labels:QUERY.labels,datasets:[mkDs(QUERY.time)]},options:mkSingle('seconds',90)});
+
+// Phase 9-11 charts
+new Chart(document.getElementById('idxLookupChart'),{type:'bar',data:{labels:IDX_LOOKUP.labels,datasets:[
+  {label:'No Index',  data:IDX_LOOKUP.no_index,backgroundColor:'rgba(248,81,73,.78)', borderColor:'#f85149',borderWidth:1,borderRadius:3},
+  {label:'With Index',data:IDX_LOOKUP.indexed,  backgroundColor:'rgba(63,185,80,.78)',  borderColor:'#3fb950',borderWidth:1,borderRadius:3},
+]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,animation:{duration:600,easing:'easeOutQuart'},
+  plugins:{legend:{display:true,labels:{color:'#e6edf3',usePointStyle:true,pointStyle:'rect',padding:18,font:{size:12}}},
+    tooltip:{backgroundColor:'#161b22',borderColor:'#30363d',borderWidth:1,titleColor:'#e6edf3',bodyColor:'#8b949e',padding:10,
+      callbacks:{label:ctx=>`  ${ctx.dataset.label}: ${ctx.parsed.x.toFixed(2)}s`}}},
+  scales:{x:{type:'logarithmic',grid:{color:GRID},ticks:{color:'#8b949e',callback:function(v){return [0.01,0.1,1,10,100].includes(v)?v+'s':null;}},title:{display:true,text:'seconds (log scale)',color:'#8b949e',font:{size:11}}},
+    y:{grid:{display:false},ticks:{color:'#e6edf3',font:{size:11}}}}}});
+new Chart(document.getElementById('sqlBypassChart'),{type:'bar',data:{labels:SQL_BYPASS.labels,datasets:[mkDs(SQL_BYPASS.time)]},
+  options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,animation:{duration:600,easing:'easeOutQuart'},
+    plugins:{legend:{display:false},tooltip:{backgroundColor:'#161b22',borderColor:'#30363d',borderWidth:1,titleColor:'#e6edf3',bodyColor:'#8b949e',padding:10,
+      callbacks:{label:ctx=>{const v=ctx.parsed.x;return v>=3600?'  '+(v/3600).toFixed(1)+'h':'  '+v.toFixed(1)+'s';}}}},
+    scales:{x:{type:'logarithmic',grid:{color:GRID},ticks:{color:'#8b949e',callback:function(v){return [1,10,100,1000,10000].includes(v)?v+'s':null;}},title:{display:true,text:'seconds (log scale)',color:'#8b949e',font:{size:11}}},
+      y:{grid:{display:false},ticks:{color:'#e6edf3',font:{size:11}}}}}});
 
 // Section 5 table
 (function(){
